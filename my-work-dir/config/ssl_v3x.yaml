@@ -1,0 +1,23 @@
+experiment_name: ssl_img_augmentations
+
+experiment_version: "3.9" # global_threshold (3.1), meteors_stretch (3.2), min_max_stretch (3.3), percentile_stretch (3.4) -> + better 3-combinations
+                          # global_threshold (3.5), meteors_stretch (3.6), min_max_stretch (3.7), percentile_stretch (3.8) -> + better 2-combinations
+paths:
+  data_root: "../../../data/upftfg26/apujols/processed/original"
+  labels_csv: "../../../data/upftfg26/apujols/processed/dataset_36164.csv"
+  output_dir: "logs/training/"
+
+model:
+  backbone_dim: 512
+  hidden_dim: 128
+  projection_dim: 1024
+
+training:
+  batch_size: 64
+  num_epochs: 15
+  patience: 3
+  cutoff_ratio: 0.001
+  learning_rate: 0.001
+  temperature: 0.5
+  num_iterations: 2000
+  use_image_augs: False

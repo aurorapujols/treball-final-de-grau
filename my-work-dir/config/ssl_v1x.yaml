@@ -1,0 +1,21 @@
+experiment_name: ssl_augmentations
+
+experiment_version: "1.15" # "v1.1 - v1.15" changing the ControlledAugment augmentations included in the list
+
+paths:
+  data_root: "../../../data/upftfg26/apujols/processed/original"
+  labels_csv: "../../../data/upftfg26/apujols/processed/dataset_36164.csv"
+  output_dir: "logs/training/"
+
+model:
+  backbone_dim: 512
+  hidden_dim: 128
+  projection_dim: 1024
+
+training:
+  batch_size: 64
+  num_epochs: 15
+  patience: 5
+  cutoff_ratio: 0.001
+  learning_rate: 0.001
+  temperature: 0.5

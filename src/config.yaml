@@ -1,0 +1,77 @@
+# ============================================================
+# Project configuration for the meteor‑processing pipeline
+# ============================================================
+
+paths:
+  data_root: "/data/upftfg26/apujols"
+
+  raw_videos_root: "/data/upftfg26/apujols/raw_data/videos"
+  raw_metadata_root: "/data/upftfg26/apujols/raw_data/metadata"
+
+  raw_root: "/data/upftfg26/apujols/raw"  
+
+  raw_output:
+    videos: "/data/upftfg26/apujols/raw/videos"
+    metadata: "/data/upftfg26/apujols/raw/metadata"
+
+  processed_root: "/data/upftfg26/apujols/processed"
+
+  processed:
+    sum_image: "/data/upftfg26/apujols/processed/sum_image"
+    sum_image_cropped: "/data/upftfg26/apujols/processed/sum_image_cropped"
+    original: "/data/upftfg26/apujols/processed/original"
+    min_max_stretch: "/data/upftfg26/apujols/processed/min_max_stretch"
+    meteors_stretch: "/data/upftfg26/apujols/processed/meteors_stretch"
+    percentile_stretch: "/data/upftfg26/apujols/processed/meteors_stretch"
+    global_threshold: "/data/upftfg26/apujols/processed/global_threshold"
+  
+  datasets: "/data/upftfg26/apujols/processed"
+
+  incoming: "/data/upftfg26/apujols/incoming"
+
+  zip_root: "/data/upftfg26/apujols/raw_data"
+
+archives:
+  # Mapping from filename prefixes to metadata archives
+  prefix_map:
+    M202512: "december2025.7z"
+    M202511: "november2025.7z"
+    M202510: "october2025.7z"
+    M20250:  "jan-sep2025.7z"
+    M2024:   "jan-dec2024.7z"
+    M2026:   "january2026"
+
+preprocessing:
+  # Masking parameters for sum-image generation
+  mask_pixels: 30
+
+  # Black-frame removal
+  crop_black_frame:
+    top: 3
+    bottom: 30
+    left: 5
+    right: 12
+
+  # Bounding box padding
+  bbox_padding: 64
+
+  # Adjustments after black-frame removal
+  bbox_adjust:
+    top_offset: 3
+    left_offset: 5
+
+
+enhancement:
+  percentile:
+    low: 2
+    high: 98
+
+
+dataset:
+  currently_trained: "dataset_36164.csv"
+  last_version: "dataset_LAST.csv"
+
+
+labeling:
+  default_label: "unknown"
+  meteor_label: "meteor"
