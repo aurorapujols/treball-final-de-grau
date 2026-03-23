@@ -69,6 +69,7 @@ enhancement:
 
 dataset:
   currently_trained: "dataset_36164.csv"
+  not_trained: "dataset_46443.csv"
   last_version: "dataset_LAST.csv"
 
 

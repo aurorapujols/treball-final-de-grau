@@ -23,7 +23,7 @@ LABEL = config.labeling.meteor_label
 def label_videos(csv_data_path=CSV_DATAPATH, label=LABEL):
 
     if os.path.exists(CSV_DATAPATH):
-        dataset = pd.read_csv(CSV_DATAPATH, sep=";")
+        dataset = pd.read_csv(csv_data_path, sep=";")
 
         # Remove duplicates just in case there still are some
         dataset = dataset.drop_duplicates(subset = ['filename'], keep='last')
@@ -43,7 +43,7 @@ def label_videos(csv_data_path=CSV_DATAPATH, label=LABEL):
         print(f"unique={len(list(dataset['filename'].unique()))}")
         print(f"num_rows={dataset.shape[0]}")
 
-        # dataset.to_csv(csv_data_path, sep=";", index=False)
+        dataset.to_csv(csv_data_path, sep=";", index=False)
 
     else:
         print("⚠️ CSV doesn't exist!")

@@ -31,7 +31,7 @@ def preprocess_files(avi_files, xml_files):
     N = len(avi_files)
     for idx in range(1, N+1):
 
-        if idx%10 == 0:
+        if idx%50 == 0:
             print(f"Processed {idx}/{N}")
         
         curr_video_file = avi_files[idx-1]

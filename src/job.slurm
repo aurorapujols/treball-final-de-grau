@@ -12,4 +12,5 @@ module load conda
 conda activate python3.14
 
 # Run your Python script
-python -u main.py --task "labeling"
+python -u main.py --task "temp"
+    # ["enhance_images", "labeling", "preprocess_incoming", "show_zip_contents", "temp"]

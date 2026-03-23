@@ -2,10 +2,14 @@ import os
 import glob
 import py7zr
 import shutil
+import subprocess
+import pandas as pd
 
 from pathlib import Path
 
 from config import config
+from xml_processing.metadata import get_bbox_metadata
+from image_processing.sum_img import generate_cropped_sum_image
 
 def extract_files_from_7z(zip_folder, output_path):
     with py7zr.SevenZipFile(zip_folder, mode='r') as archive:
@@ -121,3 +125,72 @@ def get_filenames_to_label(input_folder):
     video_files = [Path(p).stem for p in video_paths]
 
     return video_files, video_paths
+
+def check_files_and_dataset(config):
+
+    processed_folder = config.paths.processed_root
+
+    # Get the list of filenames in the dataframe
+    dataset_path = f"{processed_folder}/{config.dataset.not_trained}"
+
+    dataset = pd.read_csv(dataset_path, sep=";")
+
+    filenames = list(dataset['filename'])
+
+    print("Files in the dataset:", len(filenames))
+    print(filenames[:5])
+
+    count = 0
+    for file in os.listdir(f"{processed_folder}/original"):
+
+        name, ext = os.path.splitext(file)
+        name = name[:-12]
+        
+        if name not in filenames:
+            count += 1
+            print(f"({count}) Not in list: {name}")
+            # subprocess.run(["rm", f"{processed_folder}/original/{file}"])
+
+def fix_deleted_original(config):
+
+    processed_folder = config.paths.processed_root
+    dataset_path = f"{processed_folder}/{config.dataset.not_trained}"
+    dataset = pd.read_csv(dataset_path, sep=";")
+
+    filenames_2024 = [f for f in list(dataset['filename']) if f.startswith("M2024")]
+    print(len(filenames_2024))
+    files_to_process_xml = []
+    files_to_process_avi = []
+
+    count = 0
+    for file in filenames_2024:
+        filename = f"{file}_CROP_SUMIMG.png"
+        if not os.path.isfile(f"{processed_folder}/original/{filename}"):
+            count += 1
+            # print(f"File not found: {filename}")
+            files_to_process_xml.append(f"jan-dec2024/{filename[:-16]}.xml")
+            files_to_process_avi.append(f"jan-dec2024/{filename[:-16]}.avi")
+    print(f"Not found {count} files.")
+
+    with py7zr.SevenZipFile(f"{config.paths.raw_metadata_root}/jan-dec2024.7z", mode="r") as z:
+        archive_files = z.getnames()
+        print(archive_files)
+
+    for f in files_to_process_xml:
+        with py7zr.SevenZipFile(f"{config.paths.raw_metadata_root}/jan-dec2024.7z", mode="r") as z:
+            z.extract(targets=[f], path=f"{config.paths.incoming}")
+    for f in files_to_process_avi:
+        with py7zr.SevenZipFile(f"{config.paths.raw_videos_root}/jan-dec2024.7z", mode="r") as z:
+            z.extract(targets=[f], path=f"{config.paths.incoming}")
+
+    # archive_path = f"{config.paths.raw_metadata_root}/october2025.7z"
+
+    # with py7zr.SevenZipFile("archive.7z", mode="r") as z:
+    #     z.extract(targets=["filename.ext"], path="output_folder")
+
+    # with py7zr.SevenZipFile(archive_path, mode='r') as z:
+    #     file_list = z.getnames()          # list of all files inside the archive
+    #     first_ten = file_list[:10]        # take the first 10
+
+    #     for f in first_ten:
+    #         print(f)
