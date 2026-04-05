@@ -1,1 +1,2 @@
 *.csv
+/notebooks/average_images_per_class/

@@ -10,12 +10,12 @@ import py7zr
 # CONFIG
 # -----------------------------
 DATA_PATH = "../../../data/upftfg26/apujols"
-DATASET_CSV = f"{DATA_PATH}/processed/dataset_36164.csv"
+DATASET_CSV = f"{DATA_PATH}/processed/dataset_51700.csv"
 RESULT_CSV = "logs/labeling/results.csv"
-zip_folders = ["october2025.7z", "november2025.7z", "december2025.7z"] #, "january2026.7z"]
+zip_folders = ["october2025.7z", "november2025.7z", "december2025.7z", "january2026.7z"]
 ARCHIVE_PATH = f"{DATA_PATH}/raw_data/videos/{random.choice(zip_folders)}"
 EXTRACT_DIR = f"{DATA_PATH}/labeling_tool/extracted"
-N_FILES = 10
+N_FILES = 20
 
 def load_dataset():
     return pd.read_csv(DATASET_CSV, sep=";")

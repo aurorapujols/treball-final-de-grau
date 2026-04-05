@@ -48,10 +48,10 @@ class SSLBackbone(nn.Module):
         return x
 
 class SSLBackboneResNet(nn.Module):
-    def __init__(self, out_dim):
+    def __init__(self, res_net_dim):
         super().__init__()
-        self.backbone = get_resnet_backbone(backbone_dim=out_dim)
-        self.out_dim = out_dim   # ResNet-18 output dimension
+        self.backbone = get_resnet_backbone(backbone_dim=res_net_dim)
+        self.out_dim = res_net_dim   # ResNet-X output dimension
 
     def forward(self, x):
         h = self.backbone(x)        # (B, 512, 1, 1)
@@ -70,3 +70,17 @@ class SSLProjectionHead(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return F.normalize(x, dim=1)
+
+class SSLProjectionHeadSimCLR(nn.Module):
+    def __init__(self, in_dim, hidden_dim=2048, out_dim=128):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim, bias=False),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, out_dim, bias=True)
+        )
+
+    def forward(self, h):
+        z = self.net(h)
+        return F.normalize(z, dim=1)

@@ -22,7 +22,19 @@ def extract_backbone_features(model, dataloader, device):
     feats, labels = [], []
 
     with torch.no_grad():
-        for imgs, lbls in dataloader:
+        for batch in dataloader:
+
+            # Case 1: SSL loader → (img, label, Bmin, Bmax)
+            if len(batch) == 4:
+                imgs, lbls, _, _ = batch
+
+            # Case 2: LP loader → (img, label)
+            elif len(batch) == 2:
+                imgs, lbls = batch
+
+            else:
+                raise ValueError(f"Unexpected batch size: {len(batch)}")
+
             imgs = imgs.to(device)
             h, _ = model(imgs)
             feats.append(h.cpu())
@@ -32,7 +44,40 @@ def extract_backbone_features(model, dataloader, device):
     labels = np.array(labels)
     return feats, labels
 
-def train_ssl(model, batch_size, num_epochs, patience, cutoff_ratio, lr, temperature, loader, train_loader, val_loader, device="cpu", version=None, output_path=None, use_image_augs=False, trial=None):
+# def extract_backbone_features(model, dataloader, device):
+#     model.eval()
+#     feats, labels = [], []
+
+#     with torch.no_grad():
+#         for imgs, lbls, _, _ in dataloader:
+#             imgs = imgs.to(device)
+#             h, _ = model(imgs)
+#             feats.append(h.cpu())
+#             labels.extend(lbls)
+
+#     feats = torch.cat(feats, dim=0).numpy()
+#     labels = np.array(labels)
+#     return feats, labels
+    
+def compute_val_loss(device, model, ssl_val_loader, augmentfn, lossfn):
+    model.eval()
+    val_total = 0.0
+    with torch.no_grad():
+        for images, fnames, bmins, bmaxs in ssl_val_loader:
+            x_i, x_j = augmentfn(images, fnames, bmins, bmaxs)
+            x_i = x_i.to(device)
+            x_j = x_j.to(device)
+            
+            _, z_i = model(x_i)
+            _, z_j = model(x_j)
+            
+            val_total += lossfn(z_i, z_j).item()
+            
+        ssl_val_loss = val_total / len(ssl_val_loader)
+    
+    return ssl_val_loss
+
+def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_train_loader, ssl_val_loader, lp_train_loader, lp_val_loader, device="cpu", version=None, output_path=None, augs_idx=None, use_enhanced=False, trial=None):
 
     print("Starting SSL training...")
 
@@ -40,18 +85,18 @@ def train_ssl(model, batch_size, num_epochs, patience, cutoff_ratio, lr, tempera
     scheduler = ExponentialLR(optimizer, gamma=0.95)
     lossfn = ContrastiveLoss(temperature).to(device)
 
-    if use_image_augs:
-        augmentfn = ControlledAugment(img_transforms_path="../../../data/upftfg26/apujols/processed")
+    if use_enhanced:
+        augmentfn = ControlledAugment(augs_idx, use_enhanced=use_enhanced)    #img_transforms_path="../../../data/upftfg26/apujols/processed")
     else:
-        augmentfn = ControlledAugment()
+        augmentfn = ControlledAugment(augs_idx, use_enhanced=use_enhanced)
 
     avg_loss = float("inf")
     patience_count = 0
     stop_epoch = num_epochs
     eval_every = 1
-    debug = False
+    debug = True
 
-    history = pd.DataFrame(columns=["epoch", "schedule", "contrastive_loss", "accuracy", "uniformity", "alignment", "time"])
+    history = pd.DataFrame(columns=["epoch", "schedule", "contrastive_loss", "val_accuracy", "train_accuracy", "uniformity", "alignment", "std", "time"])
 
     for epoch in range(num_epochs):
 
@@ -62,8 +107,8 @@ def train_ssl(model, batch_size, num_epochs, patience, cutoff_ratio, lr, tempera
         # Metrics        
         metrics = StreamingMetrics(alpha=2, t=2)
 
-        for batch_idx, (images, fnames) in enumerate(loader):
-            x_i, x_j = augmentfn(images, fnames)       # CPU augment
+        for batch_idx, (images, fnames, bmins, bmaxs) in enumerate(ssl_train_loader):
+            x_i, x_j = augmentfn(images, fnames, bmins, bmaxs)       # CPU augment
 
             x_i = x_i.to(device, non_blocking=True)
             x_j = x_j.to(device, non_blocking=True)
@@ -75,6 +120,7 @@ def train_ssl(model, batch_size, num_epochs, patience, cutoff_ratio, lr, tempera
                     imgs_orig = images.cpu().numpy()
                     imgs_i = x_i.cpu().numpy()
                     imgs_j = x_j.cpu().numpy()
+                    print("Going to print the triplets...")
                     save_plot_augmentations(img_orig=imgs_orig[0, 0], img_i=imgs_i[0, 0], img_j=imgs_j[0, 0], save_path=output_path, version=version)
     
             optimizer.zero_grad()
@@ -90,10 +136,19 @@ def train_ssl(model, batch_size, num_epochs, patience, cutoff_ratio, lr, tempera
             metrics.update(z_i, z_j)
 
         scheduler.step()
-        epoch_loss = total_loss / len(loader)
-        improvement = (avg_loss - epoch_loss) / max(avg_loss, 1e-8)
+        
+        ssl_train_loss = total_loss / len(ssl_train_loader)
+        
         current_lr = scheduler.get_last_lr()[0]
         epoch_time = time.time() - training_start
+        
+        # -----------------------------------
+        # SSL Validation loss (optional)
+        # -----------------------------------
+        ssl_val_loss = None
+        if len(ssl_val_loader) > 0:
+            ssl_val_loss = compute_val_loss(device, model, ssl_val_loader, augmentfn, lossfn)
+        
 
         # -----------------------------------
         # Obtain epoch metrics
@@ -101,29 +156,42 @@ def train_ssl(model, batch_size, num_epochs, patience, cutoff_ratio, lr, tempera
 
         epoch_alignment, epoch_uniformity = metrics.compute()
 
-        linear_probe_acc = history["accuracy"].iloc[-1] if len(history) > 0 else 0.0
+        val_accuracy = history["val_accuracy"].iloc[-1] if len(history) > 0 else 0.0
 
         # Train linear probe to get new accuracy
         if epoch % eval_every == 0 or epoch == num_epochs - 1:
             with torch.no_grad(): 
-                train_feats, train_labels = extract_backbone_features(model, train_loader, device)
-                val_feats, val_labels = extract_backbone_features(model, val_loader, device)
-                linear_probe_acc, _ = run_linear_probe(train_feats, train_labels, val_feats, val_labels)
-            
+                train_feats, train_labels = extract_backbone_features(model, lp_train_loader, device)
+                embeddings_std = float(train_feats.std(axis=0).mean())
+                val_feats, val_labels = extract_backbone_features(model, lp_val_loader, device)
 
+                val_accuracy, train_accuracy = run_linear_probe(train_feats, train_labels, val_feats, val_labels)
+            
+        
+        contrastive_loss = ssl_val_loss if ssl_val_loss is not None else ssl_train_loss
         # Append to DataFrame
         history.loc[len(history)] = {
             "epoch": epoch + 1,
             "schedule": current_lr,
-            "contrastive_loss": epoch_loss,
-            "accuracy": linear_probe_acc,
+            "contrastive_loss": contrastive_loss,
+            "val_accuracy": val_accuracy,
+            "train_accuracy": train_accuracy,
             "uniformity": epoch_uniformity,
             "alignment": epoch_alignment,
+            "std": embeddings_std,
             "time": epoch_time 
         }
 
-        print(f"Epoch {epoch:03d} | "f"Loss: {epoch_loss:.4f} | "f"LR: {current_lr:.6e} | "f"Δ: {improvement:.6f} | "f"Accuracy: {linear_probe_acc}")
-
+        # ------------------------------
+        # Early stopping
+        # ------------------------------
+        if ssl_val_loss is not None:
+            improvement = (avg_loss - ssl_val_loss) / max(avg_loss, 1e-8)
+            avg_loss = ssl_val_loss
+        else:
+            improvement = (avg_loss - ssl_train_loss) / max(avg_loss, 1e-8)
+            avg_loss = ssl_train_loss
+            
         if improvement < cutoff_ratio:
             patience_count += 1
             if patience_count >= patience:
@@ -133,13 +201,23 @@ def train_ssl(model, batch_size, num_epochs, patience, cutoff_ratio, lr, tempera
         else:
             patience_count = 0
 
-        avg_loss = epoch_loss
+        print(
+            f"Epoch {epoch:03d} | "
+            f"Loss: {contrastive_loss:.4f} | "
+            f"LR: {current_lr:.6e} | "
+            f"Δ: {improvement:.6f} | "
+            f"Accuracy: {val_accuracy:.6f} | "
+            f"uniformity: {epoch_uniformity:.6f} | "
+            f"alignment: {epoch_alignment:.6f} | "
+            f"std: {embeddings_std:.6f}"
+        )
+
 
         if trial is not None:
-            trial.report(linear_probe_acc, epoch)
+            trial.report(val_accuracy, epoch)
 
-            # if trial.should_prune():
-            #     raise optuna.TrialPruned()
+            if trial.should_prune():
+                raise optuna.TrialPruned()
 
     print("SSL training complete.\n")
 

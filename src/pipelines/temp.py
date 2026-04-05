@@ -1,14 +1,14 @@
 import pandas as pd
 
-from utils import archives
+from utils import archives, visualization
+from dataset import dataset_utils
 
 from config import config
 
 def temp_function():
 
     # Change here what functions to execute
-    # archives.check_files_and_dataset(config)
-    archives.fix_deleted_original(config)
+    archives.get_images_for_3d_plotting(config)
 
 if __name__ == "__main__":
     

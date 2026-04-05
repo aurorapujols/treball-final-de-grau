@@ -5,9 +5,11 @@ import math
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
 import matplotlib.pyplot as plt
-from torchvision.transforms import InterpolationMode
+from torchvision.transforms import ColorJitter
 from transformations.transform import base_transform
 from PIL import Image
+
+from transformations.transform import NumpyEnhance, MeteorStretchEnhance, GlobalThresholdEnhance, min_max_stretch, percentile_stretch
 
 
 class RandomAffineMeanFill:
@@ -80,72 +82,87 @@ class RandomAffineCropSquare:
         return cropped
 
 
-class ControlledAugment: 
+class ControlledAugment:
     """
     Applies each augmentation independently with probability p = 1/N. 
     Ensures each view gets at least one augmentation. 
     """
-    def __init__(self, img_transforms_path=None): 
+    def __init__(self, augs_idx=None, use_enhanced=False): 
+
+        # Geometric / photometric basic augmentations
         self.augs = [
+            T.ColorJitter(brightness=1.5, contrast=1.5),
             RandomAffineCropSquare(degrees=(-90,90), out_size=128),
-            # T.GaussianBlur(kernel_size=3, sigma=(0.5, 2.0)),
-            T.ColorJitter(brightness=1.0, contrast=1.0),
-            T.RandomResizedCrop(size=128, scale=(0.5, 1.0)),    # resize to 128x128 image crop up to 50% in the image
+            T.GaussianBlur(kernel_size=3, sigma=(0.5, 2.0)),            
+            T.RandomResizedCrop(size=128, scale=(0.3, 1.0)),    # resize to 128x128 image crop up to 50% in the image
         ] # list of PIL→PIL transforms 
-        self.img_types = ["global_threshold", "percentile_stretch"]
-        self.img_path = img_transforms_path
 
-        self.all_augs = self.augs + (self.img_types if self.img_path is not None else [])
+        # Enhanced-image augmentations
+        self.enhance_fns = {
+            "min_max_stretch": NumpyEnhance(min_max_stretch),
+            "global_threshold": GlobalThresholdEnhance(),
+            "percentile_stretch": NumpyEnhance(percentile_stretch),
+            # "meteors_stretch": MeteorStretchEnhance()
+        }
 
-        self.N = len(self.all_augs)
+        self.img_types = list(self.enhance_fns.keys())
+        self.use_enhanced = use_enhanced
+
+        if augs_idx is not None:
+
+            if not use_enhanced:
+                # Only geometric augs
+                try:
+                    self.augs = [self.augs[i] for i in augs_idx]
+                except TypeError:
+                    self.augs = [self.augs[augs_idx]]
+
+                print("Using geometric augs:", self.augs)
+                
+            else:
+                # Geometric + enhanced (keep all geometric, filter only enhanced augs)
+                try:
+                    self.img_types = [self.img_types[i] for i in augs_idx]
+                except TypeError:
+                    self.img_types = [self.img_types[augs_idx]]
+
+                print("Using enhanced augs:", self.img_types)
+
+        self.N = len(self.augs)
         self.p = 1.0 / self.N # equal probability 
 
+    def apply_aug(self, aug, img, bmin, bmax):
+        # Case of color jitter, use one of the enhanced images
+        if isinstance(aug, ColorJitter) and self.use_enhanced:
+            enh = random.choice(self.img_types)
+            fn = self.enhance_fns[enh]
 
-
-    def get_enhanced_image(self, fname, img_type):
-
-        filename = f"{os.path.basename(fname)}{'_CROP_ENHANCED' if img_type != 'original' else '_CROP_SUMIMG'}.png"     # in case can't not open file, use original image
-        path = os.path.join(self.img_path, img_type, filename)
-        try:
-            img = Image.open(path)
-        except:
-            return None
-        return img.resize((128, 128)) 
+            if isinstance(fn, MeteorStretchEnhance):
+                return fn(img, bmin, bmax)
+            if isinstance(self.enhance_fns[enh], GlobalThresholdEnhance):
+                return fn(img, bmin)
+            return fn(img)
         
-    def one_view(self, img_tensor, img_name): 
+        return aug(img)
+        
+    def one_view(self, img_tensor, img_name, bmin, bmax): 
         img = T.ToPILImage()(img_tensor)
         applied = False
 
-        for aug in self.all_augs:
+        for aug in self.augs:
             if random.random() <= self.p:
                 applied = True
-
-                if isinstance(aug, str):    # if it is the name of the folder in img_types
-                    img_enhanced = self.get_enhanced_image(img_name, aug)
-                    if img_enhanced is not None:
-                        img = img_enhanced
-                    else: #keep the original image
-                        applied = False
-                else:   # normal augmentations
-                    img = aug(img)
+                img = self.apply_aug(aug, img, bmin, bmax)                
             
         if not applied: # if no augmentation was applied, ensure one is
-            while (not applied):
-                aug = random.choice(self.all_augs)
-                if isinstance(aug, str):
-                    img_enhanced = self.get_enhanced_image(img_name, aug) 
-                    if img_enhanced is not None:
-                        img = img_enhanced
-                        applied = True
-                else: 
-                    img = aug(img)
-                    applied = True
+            aug = random.choice(self.augs)
+            img = self.apply_aug(aug, img, bmin, bmax)
         
         return T.ToTensor()(img)
      
-    def __call__(self, batch, fnames): 
-        x_i = torch.stack([self.one_view(img, fname) for img, fname in zip(batch, fnames)]) 
-        x_j = torch.stack([self.one_view(img, fname) for img, fname in zip(batch, fnames)]) 
+    def __call__(self, batch, fnames, bmins, bmaxs): 
+        x_i = torch.stack([self.one_view(img, fname, bmin, bmax) for img, fname, bmin, bmax in zip(batch, fnames, bmins, bmaxs)]) 
+        x_j = torch.stack([self.one_view(img, fname, bmin, bmax) for img, fname, bmin, bmax in zip(batch, fnames, bmins, bmaxs)]) 
         return x_i, x_j
 
 
@@ -157,7 +174,7 @@ class Augment:
         self.train_transform = T.Compose([
             RandomAffineMeanFill(degrees=(-90,90), scale=(0.9, 1.1)),
             T.RandomApply([T.GaussianBlur(kernel_size=3, sigma=(0.5, 2.0))], p=0.5),
-            T.RandomApply([T.ColorJitter(brightness=0.8, contrast=0.8)], p=0.5),
+            T.RandomApply([T.ColorJitter(brightness=2.0, contrast=2.0)], p=0.5),
             T.RandomResizedCrop(size=64, scale=(0.8, 1.0)),
 
             T.ToTensor()

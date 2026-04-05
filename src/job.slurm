@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=main         # Job name
-#SBATCH --output=logs/job.out                # Standard output file
-#SBATCH --error=logs/job.err                 # Standard error file
-#SBATCH --time=02:00:00                 # Max runtime (hh:mm:ss)
+#SBATCH --output=logs/job%j.out                # Standard output file
+#SBATCH --error=logs/job%j.err                 # Standard error file
+#SBATCH --time=2-00:00:00                 # Max runtime (hh:mm:ss)
 #SBATCH --partition=std                 # Partition/queue name
 
 # Load modules if needed (depends on your cluster setup)

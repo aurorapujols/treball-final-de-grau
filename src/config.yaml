@@ -4,6 +4,7 @@
 
 paths:
   data_root: "/data/upftfg26/apujols"
+  logs_root: "/home/upftfg26/apujols/src/logs"
 
   raw_videos_root: "/data/upftfg26/apujols/raw_data/videos"
   raw_metadata_root: "/data/upftfg26/apujols/raw_data/metadata"
@@ -69,8 +70,9 @@ enhancement:
 
 dataset:
   currently_trained: "dataset_36164.csv"
-  not_trained: "dataset_46443.csv"
+  not_trained: "dataset_51700.csv"
   last_version: "dataset_LAST.csv"
+  labeling_results: "results.csv"
 
 
 labeling:

@@ -19,7 +19,7 @@ def run_image_enhancing(enhance_type):
     dataset = pd.read_csv(DATASET_PATH, sep=";")
 
     for filename in dataset['filename']:
-        input_path = f"{config.paths.processed.sum_image_cropped}/{filename}_CROP_SUMIMG.png"
+        input_path = f"{config.paths.processed.original}/{filename}_CROP_SUMIMG.png"
         output_path = f"{config.paths.processed_root}/{enhance_type}/{filename}_CROP_ENHANCED.png"
 
         if not os.path.exists(output_path):

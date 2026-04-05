@@ -4,7 +4,7 @@ import torch
 import optuna
 import numpy as np
 
-from data.dataloaders import get_ssl_loader, get_labeled_loaders, get_full_loader_for_features
+from data.dataloaders import get_ssl_loader, get_ssl_loaders, get_labeled_loaders, get_full_loader_for_features
 from transformations.transform import base_transform
 from models.ssl_model import SSLModel, SSLResNet
 from training.ssl_training import train_ssl, extract_backbone_features
@@ -12,7 +12,7 @@ from utils.seed import set_seed
 from utils.checkpoint import save_checkpoint
 
 
-def run_ssl_experiment(cfg, trial=None):
+def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
     """
     Runs a full SSL experiment:
       1. Load unlabeled dataset
@@ -34,29 +34,53 @@ def run_ssl_experiment(cfg, trial=None):
     output_dir = cfg["paths"]["output_dir"]
     os.makedirs(output_dir, exist_ok=True)
 
-    VERSION = cfg["experiment_version"]
+    if add_version is not None:
+        VERSION = f"{cfg['experiment_version'][:2]}{add_version}"
+    else:
+        VERSION = cfg['experiment_version']
     print(f"VERSION={VERSION}")
+
+    lr = trial.params["lr"] if trial else cfg["training"]["learning_rate"]
+    temperature = trial.params["temperature"] if trial else cfg["training"]["temperature"]
+    batch_size = trial.params["batch_size"] if trial else cfg["training"]["batch_size"]
+
 
     # -------------------------------------------------
     # Load datasets
     # -------------------------------------------------
     print("\nLoading datasets...")
 
-    # Unlabeled dataset for SSL
-    unlabeled_dataset, ssl_loader = get_ssl_loader(
-        data_root=cfg["paths"]["data_root"],
-        batch_size=cfg["training"]["batch_size"],
-        transform=base_transform,
-        version=VERSION
-    )
+    # Unlabeled dataset for SSL (ALL or split)
+    train_idx = None
+    val_idx = None
+    
+    if cfg['training']['train_with_all_data']:
+        unlabeled_dataset, ssl_train_loader = get_ssl_loader(
+            data_root=cfg["paths"]["data_root"],
+            csv_file=cfg["paths"]["labels_csv"],
+            batch_size=batch_size,
+            transform=base_transform,
+            version=VERSION
+        )
+    else:
+        unlabeled_dataset, ssl_train_loader, ssl_val_loader, train_idx, val_idx = get_ssl_loaders(
+            data_root=cfg["paths"]["data_root"],
+            csv_file=cfg["paths"]["labels_csv"],
+            batch_size=batch_size,
+            transform=base_transform,
+            val_split=0.2,
+            version=VERSION
+        )
 
     # Labeled dataset for linear probe
-    labeled_dataset, train_loader, val_loader = get_labeled_loaders(
+    labeled_dataset, lp_train_loader, lp_val_loader = get_labeled_loaders(
         data_root=cfg["paths"]["data_root"],
         csv_file=cfg["paths"]["labels_csv"],
-        batch_size=cfg["training"]["batch_size"],
+        batch_size=batch_size,
         transform=base_transform,
-        version=VERSION
+        version=VERSION,
+        train_idx=train_idx,
+        val_idx=val_idx
     )
 
     print(f"Unlabeled samples: {len(unlabeled_dataset)}")
@@ -75,8 +99,7 @@ def run_ssl_experiment(cfg, trial=None):
     # ).to(device)
 
     model = SSLResNet(
-        backbone_dim=cfg["model"]["backbone_dim"],   # 512 or 2048 (ResNet-18 vs ResNet-50)
-        hidden_dim=cfg["model"]["hidden_dim"],
+        res_net_dim=cfg["model"]["res_net_dim"],
         projection_dim=cfg["model"]["projection_dim"]
     ).to(device)
     
@@ -87,19 +110,20 @@ def run_ssl_experiment(cfg, trial=None):
 
     model, history, stop_epoch = train_ssl(
         model=model,
-        batch_size=cfg["training"]["batch_size"],
         num_epochs=cfg["training"]["num_epochs"],
         patience=cfg["training"]["patience"],
         cutoff_ratio=cfg["training"]["cutoff_ratio"],
-        lr=cfg["training"]["learning_rate"],
-        temperature=cfg["training"]["temperature"],
-        loader=ssl_loader,
-        train_loader=train_loader,
-        val_loader=val_loader,
+        lr=lr,
+        temperature=temperature,
+        ssl_train_loader=ssl_train_loader,
+        ssl_val_loader=ssl_val_loader,
+        lp_train_loader=lp_train_loader,
+        lp_val_loader=lp_val_loader,
         device=device,
-        version=cfg["experiment_version"],
+        version=VERSION,
         output_path=cfg["paths"]["output_dir"],
-        use_image_augs=cfg["training"]["use_image_augs"],
+        augs_idx=augs_idx,
+        use_enhanced=cfg["training"]["use_enhanced"],
         trial=trial
     )
 
@@ -109,7 +133,7 @@ def run_ssl_experiment(cfg, trial=None):
     # Extract features
     # -------------------------------------------------
     print("\nExtracting backbone features...")
-    full_loader = get_full_loader_for_features(unlabeled_dataset, batch_size=cfg["training"]["batch_size"])
+    full_loader = get_full_loader_for_features(unlabeled_dataset, batch_size=batch_size)
     features, filenames = extract_backbone_features(model, full_loader, device)
 
     # -------------------------------------------------
@@ -137,7 +161,7 @@ def run_ssl_experiment(cfg, trial=None):
     print("\n========== SSL SUMMARY ==========")
     print(f"Experiment:       {cfg['experiment_name']}")
     print(f"Stop epoch:       {stop_epoch}")
-    print(f"Final accuracy:   {history['accuracy'].iloc[-1]:.4f}")
+    print(f"Final accuracy:   {history['val_accuracy'].iloc[-1]:.4f}")
     print(f"Final loss:       {history['contrastive_loss'].iloc[-1]:.4f}")
     print(f"Training time:    {training_time:.2f} sec")
     print(f"Features saved:   {feat_path}")

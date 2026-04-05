@@ -12,6 +12,8 @@ from labeling_utils import (
     convert_avi_to_mp4, cleanup_extracted_videos, 
     DATA_PATH, ARCHIVE_PATH, EXTRACT_DIR, N_FILES)
 
+zip_folders = ["october2025.7z", "november2025.7z", "december2025.7z", "january2026.7z", "february2026.7z"]     # other folders only have meteors
+
 # -----------------------------
 # SESSION STATE
 # -----------------------------
@@ -73,6 +75,7 @@ if not st.session_state.ready_to_label:
         st.stop()  # hard stop, prevents other mode UI
 
     elif mode == "Classify new unknown videos":
+        archive_path = f"{DATA_PATH}/raw_data/videos/{random.choice(zip_folders)}"
         existing_unlabeled = get_existing_unlabeled_videos(unknown_files)
 
         if len(existing_unlabeled) >= N_FILES:
@@ -87,11 +90,12 @@ if not st.session_state.ready_to_label:
             st.info(f"{len(existing_unlabeled)} videos already extracted. Need {needed} more.")
 
             not_extracted = [f for f in unknown_files if f not in existing_unlabeled]
-            selected_videos = get_files_to_extract(dataset, ARCHIVE_PATH, not_extracted, needed)
+            
+            selected_videos = get_files_to_extract(dataset, archive_path, not_extracted, needed)
 
             if not st.session_state.extracted:
                 if st.button("Extract missing videos"):
-                    extract_video_files(ARCHIVE_PATH, selected_videos)
+                    extract_video_files(archive_path, selected_videos)
                     st.session_state.extracted = True
             else:
                 st.info("Videos already extracted.")

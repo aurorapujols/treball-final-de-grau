@@ -18,15 +18,10 @@ def run_ssl_optuna(cfg):
         # Suggest values for hyperparameters
         # --------------------------------------
 
-        # Model dimensionalities
-        cfg["model"]["backbone_dim"] = trial.suggest_categorical("backbone_dim", [512, 2048])
-        cfg["model"]["hidden_dim"] = trial.suggest_int("hidden_dim", 256, 2048, step=256)
-        cfg["model"]["projection_dim"] = trial.suggest_int("projection_dim", 512, 2048, step=256)
-
         # Model parameters
-        cfg["training"]["learning_rate"] = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-        cfg["training"]["temperature"] = trial.suggest_float("temperature", 0.05, 0.5)
-        cfg["training"]["batch_size"] = trial.suggest_categorical("batch_size", [16, 32, 64, 128])
+        cfg["training"]["learning_rate"] = trial.suggest_float("lr", float(cfg['training']['learning_rate'][0]), float(cfg['training']['learning_rate'][1]), log=True)
+        cfg["training"]["temperature"] = trial.suggest_float("temperature", float(cfg['training']['temperature'][0]), float(cfg['training']['temperature'][1]))
+        cfg["training"]["batch_size"] = trial.suggest_categorical("batch_size", cfg['training']['batch_size'])
 
         # Set trial info
         cfg["experiment_name"] = f"ssl_optuna_trial"
@@ -35,12 +30,12 @@ def run_ssl_optuna(cfg):
         # ---------------------------------------
         # Build model
         # ---------------------------------------
-        model, history, stop_epoch = run_ssl_experiment(cfg, trial)
+        model, history, stop_epoch = run_ssl_experiment(cfg, trial=trial)
 
         # ---------------------------------------
         # Return metric to maximize
         # ---------------------------------------
-        final_acc = history["accuracy"].iloc[-1]
+        final_acc = history["val_accuracy"].iloc[-1]
         final_epoch = stop_epoch
         final_uniformity = history["uniformity"].iloc[-1]
         final_alignment = history["alignment"].iloc[-1]

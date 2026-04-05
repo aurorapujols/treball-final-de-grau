@@ -25,6 +25,9 @@ def label_videos(csv_data_path=CSV_DATAPATH, label=LABEL):
     if os.path.exists(CSV_DATAPATH):
         dataset = pd.read_csv(csv_data_path, sep=";")
 
+        print("Incoming:", get_filenames_to_label(INCOMING_FOLDER)[0])
+        print("Dataset:", len(dataset))
+
         # Remove duplicates just in case there still are some
         dataset = dataset.drop_duplicates(subset = ['filename'], keep='last')
 
@@ -38,12 +41,13 @@ def label_videos(csv_data_path=CSV_DATAPATH, label=LABEL):
         preprocess_incoming(are_meteors=True)
 
         clear_incoming_folder(path_incoming_folder=INCOMING_FOLDER, files_to_leave=[])
-        
-        dataset = dataset.drop_duplicates(subset = ['filename'], keep='last')
-        print(f"unique={len(list(dataset['filename'].unique()))}")
-        print(f"num_rows={dataset.shape[0]}")
+        # dataset = dataset.drop_duplicates(subset = ['filename'], keep='last')
+        # print(f"unique={len(list(dataset['filename'].unique()))}")
+        # print(f"num_rows={dataset.shape[0]}")
 
-        dataset.to_csv(csv_data_path, sep=";", index=False)
+        # dataset.to_csv(csv_data_path, sep=";", index=False)
+        # df = pd.read_csv(CSV_DATAPATH, sep=";")
+        # print("Dataset after:", len(df))
 
     else:
         print("⚠️ CSV doesn't exist!")

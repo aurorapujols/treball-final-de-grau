@@ -1,0 +1,23 @@
+experiment_name: ssl_augmentations
+
+experiment_version: "2.0" # "v1.1 - v1.15" changing the ControlledAugment augmentations included in the list
+                          # "v2.1 - v2.15" changing the ColorJitter to different choices of  images in folders
+
+paths:
+  data_root: "../../../data/upftfg26/apujols/processed/original"
+  labels_csv: "../../../data/upftfg26/apujols/processed/dataset_51700.csv"
+  output_dir: "logs/training/"
+
+model:
+  res_net_dim: 512      # 512, 2048
+  projection_dim: 128   # 128, 256
+
+training:
+  train_with_all_data: False    # or True to train with test and split to evaluate loss
+  batch_size: 64
+  num_epochs: 15
+  patience: 5
+  cutoff_ratio: 0.001
+  learning_rate: 0.001
+  temperature: 0.5
+  use_enhanced: True

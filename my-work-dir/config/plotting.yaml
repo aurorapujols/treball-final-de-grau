@@ -1,0 +1,9 @@
+experiment_name: plotting_3d_embeddings
+
+experiment_version: "1.0" 
+
+paths:
+  data_root: "../../../data/upftfg26/apujols/processed/original"
+  dataset: "../../../data/upftfg26/apujols/processed/dataset_51700.csv"
+  labels_csv: "../../../data/upftfg26/apujols/processed/results.csv"
+  output_dir: "logs/"

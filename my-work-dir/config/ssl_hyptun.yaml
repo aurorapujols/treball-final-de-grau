@@ -4,23 +4,22 @@ experiment_version: "2.0"
 
 paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
-  labels_csv: "../../../data/upftfg26/apujols/processed/dataset_36164.csv"
-  output_dir: "training/hyperparameter_tunning/optuna_logs/"
+  labels_csv: "../../../data/upftfg26/apujols/processed/dataset_51700.csv"
+  output_dir: "logs/training/"
 
 model:
-  backbone_dim: 512
-  hidden_dim: 128
-  projection_dim: 1024
+  res_net_dim: 512         # 512, 2048
+  projection_dim: 256      # 128, 256
 
 training:
-  batch_size: 64
+  train_with_all_data: False
+  batch_size: [32, 64, 128, 256]  # to tune
   num_epochs: 40
   patience: 5
   cutoff_ratio: 0.001
-  learning_rate: 0.001
-  temperature: 0.5
-  num_iterations: 2000
-  use_image_augs: False
+  learning_rate: [1e-4, 1e-2]     # to tune
+  temperature: [0.05, 0.5]        # to tune
+  use_enhanced: True
 
 optuna:
-  n_trials: 50
+  n_trials: 50                    # number of trials (with prunning on)
