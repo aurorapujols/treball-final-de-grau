@@ -3,6 +3,7 @@ import argparse
 # Experiment entry points
 from experiments.run_ssl import run_ssl_experiment
 from experiments.run_plots import run_plot3d_embeddings
+from experiments.run_classifier import train_linear_models
 from config.config import load_config
 from training.hyperparameter_tunning.optuna_ssl import run_ssl_optuna
 
@@ -13,7 +14,7 @@ def main():
         "--task",
         type=str,
         required=True,
-        choices=["ssl", "ssl_augs", "ssl_architecture", "ssl_hyptun", "plot_3d_embeddings_vgg"],
+        choices=["ssl", "ssl_augs", "ssl_architecture", "ssl_hyptun", "ssl_final_model", "plot_3d_embeddings_vgg", "train_classifiers"],
         help="Which experiment to run"
     )
 
@@ -47,11 +48,11 @@ def main():
     elif args.task == "plot_3d_embeddings_vgg":
         run_plot3d_embeddings(cfg)
 
-    # elif args.task == "classifier":
-    #     run_classifier_experiment(cfg)
-
-    # elif args.task == "clustering":
-    #     run_clustering_experiment(cfg)
+    elif args.task == "ssl_final_model":
+        run_ssl_experiment(cfg)
+    
+    elif args.task == "train_classifiers":
+        train_linear_models(cfg)
 
 
 if __name__ == "__main__":

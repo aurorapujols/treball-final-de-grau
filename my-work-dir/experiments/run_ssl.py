@@ -53,6 +53,7 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
     # Unlabeled dataset for SSL (ALL or split)
     train_idx = None
     val_idx = None
+    ssl_val_loader = None
     
     if cfg['training']['train_with_all_data']:
         unlabeled_dataset, ssl_train_loader = get_ssl_loader(
@@ -108,7 +109,7 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
     # -------------------------------------------------
     start_time = time.time()
 
-    model, history, stop_epoch = train_ssl(
+    model, best_acc, best_state, history, stop_epoch = train_ssl(
         model=model,
         num_epochs=cfg["training"]["num_epochs"],
         patience=cfg["training"]["patience"],
@@ -154,6 +155,11 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
     # Save checkpoint
     ckpt_path = os.path.join(output_dir, f"ssl_model_{cfg['experiment_name']}_{VERSION}.pt")
     save_checkpoint(model, ckpt_path)
+
+    print("Loading best model (val_accuracy = {:.4f})".format(best_acc))
+    model.load_state_dict(best_state)
+    best_model_path = os.path.join(output_dir, f"ssl_best_model_{VERSION}.pt")
+    save_checkpoint(model, best_model_path)
 
     # -------------------------------------------------
     # Summary

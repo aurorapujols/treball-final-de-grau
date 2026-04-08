@@ -1,5 +1,6 @@
 import os
 import time
+import copy
 import optuna
 import numpy as np
 import pandas as pd
@@ -11,7 +12,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 
-from losses.contrastive_loss import ContrastiveLoss
+from losses.losses import ContrastiveLoss
 from transformations.augment import ControlledAugment, RandomAffineMeanFill
 from evaluation.linear_probe import run_linear_probe
 from evaluation.metrics import StreamingMetrics
@@ -43,21 +44,6 @@ def extract_backbone_features(model, dataloader, device):
     feats = torch.cat(feats, dim=0).numpy()
     labels = np.array(labels)
     return feats, labels
-
-# def extract_backbone_features(model, dataloader, device):
-#     model.eval()
-#     feats, labels = [], []
-
-#     with torch.no_grad():
-#         for imgs, lbls, _, _ in dataloader:
-#             imgs = imgs.to(device)
-#             h, _ = model(imgs)
-#             feats.append(h.cpu())
-#             labels.extend(lbls)
-
-#     feats = torch.cat(feats, dim=0).numpy()
-#     labels = np.array(labels)
-#     return feats, labels
     
 def compute_val_loss(device, model, ssl_val_loader, augmentfn, lossfn):
     model.eval()
@@ -95,6 +81,8 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
     stop_epoch = num_epochs
     eval_every = 1
     debug = True
+    best_acc = -float("inf")
+    best_state = None
 
     history = pd.DataFrame(columns=["epoch", "schedule", "contrastive_loss", "val_accuracy", "train_accuracy", "uniformity", "alignment", "std", "time"])
 
@@ -146,17 +134,13 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
         # SSL Validation loss (optional)
         # -----------------------------------
         ssl_val_loss = None
-        if len(ssl_val_loader) > 0:
+        if ssl_val_loader is not None:
             ssl_val_loss = compute_val_loss(device, model, ssl_val_loader, augmentfn, lossfn)
         
-
         # -----------------------------------
         # Obtain epoch metrics
         # -----------------------------------
-
         epoch_alignment, epoch_uniformity = metrics.compute()
-
-        val_accuracy = history["val_accuracy"].iloc[-1] if len(history) > 0 else 0.0
 
         # Train linear probe to get new accuracy
         if epoch % eval_every == 0 or epoch == num_epochs - 1:
@@ -165,7 +149,7 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
                 embeddings_std = float(train_feats.std(axis=0).mean())
                 val_feats, val_labels = extract_backbone_features(model, lp_val_loader, device)
 
-                val_accuracy, train_accuracy = run_linear_probe(train_feats, train_labels, val_feats, val_labels)
+                lp_val_accuracy, lp_train_accuracy = run_linear_probe(train_feats, train_labels, val_feats, val_labels)
             
         
         contrastive_loss = ssl_val_loss if ssl_val_loss is not None else ssl_train_loss
@@ -174,8 +158,8 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
             "epoch": epoch + 1,
             "schedule": current_lr,
             "contrastive_loss": contrastive_loss,
-            "val_accuracy": val_accuracy,
-            "train_accuracy": train_accuracy,
+            "val_accuracy": lp_val_accuracy,
+            "train_accuracy": lp_train_accuracy,
             "uniformity": epoch_uniformity,
             "alignment": epoch_alignment,
             "std": embeddings_std,
@@ -206,19 +190,23 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
             f"Loss: {contrastive_loss:.4f} | "
             f"LR: {current_lr:.6e} | "
             f"Δ: {improvement:.6f} | "
-            f"Accuracy: {val_accuracy:.6f} | "
+            f"Accuracy: {lp_val_accuracy:.6f} | "
             f"uniformity: {epoch_uniformity:.6f} | "
             f"alignment: {epoch_alignment:.6f} | "
             f"std: {embeddings_std:.6f}"
         )
 
+        if lp_val_accuracy > best_acc:
+            best_acc = lp_val_accuracy
+            best_state = copy.deepcopy(model.state_dict())
+
 
         if trial is not None:
-            trial.report(val_accuracy, epoch)
+            trial.report(lp_val_accuracy, epoch)
 
             if trial.should_prune():
                 raise optuna.TrialPruned()
 
     print("SSL training complete.\n")
 
-    return model, history, stop_epoch
+    return model, best_acc, best_state, history, stop_epoch

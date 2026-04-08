@@ -1,0 +1,9 @@
+experiment_name: linear_classifiers
+
+experiment_version: "1.0"
+
+paths:
+  features: "../../../data/upftfg26/apujols/results/features/ssl_features_ssl_final_model_4.0.npy"
+  filenames: "../../../data/upftfg26/apujols/results/filenames/ssl_filenames_ssl_final_model_4.0.npy"
+  dataset: "../../../data/upftfg26/apujols/processed/dataset_51700.csv"
+  output_dir: "logs/training/"

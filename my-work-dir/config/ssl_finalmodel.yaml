@@ -1,0 +1,22 @@
+experiment_name: ssl_final_model
+
+experiment_version: "4.1" # 4.0 (100 epochs, patience=5)
+
+paths:
+  data_root: "../../../data/upftfg26/apujols/processed/original"
+  labels_csv: "../../../data/upftfg26/apujols/processed/dataset_51700.csv"
+  output_dir: "logs/training/"
+
+model:
+  res_net_dim: 512         
+  projection_dim: 256      
+
+training:
+  train_with_all_data: False
+  batch_size: 128  
+  num_epochs: 70
+  patience: 3
+  cutoff_ratio: 0.001
+  learning_rate: 0.0012323565167879668    
+  temperature: 0.25537511437245963        
+  use_enhanced: True
