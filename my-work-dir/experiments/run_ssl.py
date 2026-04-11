@@ -3,13 +3,17 @@ import time
 import torch
 import optuna
 import numpy as np
+import pandas as pd
 
-from data.dataloaders import get_ssl_loader, get_ssl_loaders, get_labeled_loaders, get_full_loader_for_features
+from data.datasets import get_dataset_split
+from data.dataloaders import get_ssl_loader
 from transformations.transform import base_transform
-from models.ssl_model import SSLModel, SSLResNet
+from models.ssl_model import SSLResNet
 from training.ssl_training import train_ssl, extract_backbone_features
 from utils.seed import set_seed
 from utils.checkpoint import save_checkpoint
+from evaluation.linear_probe import run_linear_probe
+
 
 
 def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
@@ -50,42 +54,58 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
     # -------------------------------------------------
     print("\nLoading datasets...")
 
-    # Unlabeled dataset for SSL (ALL or split)
-    train_idx = None
-    val_idx = None
-    ssl_val_loader = None
-    
-    if cfg['training']['train_with_all_data']:
-        unlabeled_dataset, ssl_train_loader = get_ssl_loader(
-            data_root=cfg["paths"]["data_root"],
-            csv_file=cfg["paths"]["labels_csv"],
-            batch_size=batch_size,
-            transform=base_transform,
-            version=VERSION
-        )
-    else:
-        unlabeled_dataset, ssl_train_loader, ssl_val_loader, train_idx, val_idx = get_ssl_loaders(
-            data_root=cfg["paths"]["data_root"],
-            csv_file=cfg["paths"]["labels_csv"],
-            batch_size=batch_size,
-            transform=base_transform,
-            val_split=0.2,
-            version=VERSION
-        )
+    # if cfg['training']['train_with_all_data']:
+    #     unlabeled_dataset, ssl_train_loader = get_ssl_loader(
+    #         data_root=cfg["paths"]["data_root"],
+    #         csv_file=cfg["paths"]["labels_csv"],
+    #         batch_size=batch_size,
+    #         transform=base_transform,
+    #         version=VERSION
+    #     )
+    # else:
+    #     unlabeled_dataset, ssl_train_loader, ssl_val_loader, train_idx, val_idx = get_ssl_loaders(
+    #         data_root=cfg["paths"]["data_root"],
+    #         csv_file=cfg["paths"]["labels_csv"],
+    #         batch_size=batch_size,
+    #         transform=base_transform,
+    #         val_split=0.2,
+    #         version=VERSION
+    #     )
 
-    # Labeled dataset for linear probe
-    labeled_dataset, lp_train_loader, lp_val_loader = get_labeled_loaders(
-        data_root=cfg["paths"]["data_root"],
-        csv_file=cfg["paths"]["labels_csv"],
+    train_set, val_set, test_set = get_dataset_split(full_dataset_csv_path=cfg['paths']['full_dataset'], output_path=cfg['paths']['datasets_dir'])
+    train_set, train_loader = get_ssl_loader(
+        data_root=cfg['paths']['data_root'], 
+        dataframe=train_set,
         batch_size=batch_size,
         transform=base_transform,
-        version=VERSION,
-        train_idx=train_idx,
-        val_idx=val_idx
-    )
+        version=VERSION)
+    val_set, val_loader = get_ssl_loader(
+        data_root=cfg['paths']['data_root'], 
+        dataframe=val_set,
+        batch_size=batch_size,
+        transform=base_transform,
+        version=VERSION)
+    test_set, test_loader = get_ssl_loader(
+        data_root=cfg['paths']['data_root'], 
+        dataframe=test_set,
+        batch_size=batch_size,
+        transform=base_transform,
+        version=VERSION)
+    print(f"Dataset: {len(train_set) + len(val_set) + len(test_set)} | Train: {len(train_set)} | Val: {len(val_set)} | Test: {len(test_set)}")
 
-    print(f"Unlabeled samples: {len(unlabeled_dataset)}")
-    print(f"Labeled samples:   {len(labeled_dataset)}")
+    # Labeled dataset for linear probe
+    # labeled_dataset, lp_train_loader, lp_val_loader = get_labeled_loaders(
+    #     data_root=cfg["paths"]["data_root"],
+    #     csv_file=cfg["paths"]["labels_csv"],
+    #     batch_size=batch_size,
+    #     transform=base_transform,
+    #     version=VERSION,
+    #     train_idx=train_idx,
+    #     val_idx=val_idx
+    # )
+
+    # print(f"Unlabeled samples: {len(unlabeled_dataset)}")
+    # print(f"Labeled samples:   {len(labeled_dataset)}")
 
 
     # -------------------------------------------------
@@ -108,34 +128,54 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
     # Train SSL model
     # -------------------------------------------------
     start_time = time.time()
-
+    params = {
+        "num_epochs": int(cfg["training"]["num_epochs"]),
+        "patience": int(cfg["training"]["patience"]),
+        "max_gap": cfg["training"]["max_gap"],
+        "cutoff_ratio": float(cfg["training"]["cutoff_ratio"]),
+        "learning_rate": lr,
+        "temperature": temperature
+        }
+    loaders = {
+        "train_loader": train_loader,
+        "val_loader": val_loader,
+        "test_loader": test_loader,
+    }
+    args = {
+        "device": device,
+        "version": VERSION,
+        "output_path": cfg["paths"]["output_dir"],
+        "augs_idx": augs_idx,
+        "use_enhanced": bool(cfg["training"]["use_enhanced"]),
+        "eval_every": 5
+    }
     model, best_acc, best_state, history, stop_epoch = train_ssl(
         model=model,
-        num_epochs=cfg["training"]["num_epochs"],
-        patience=cfg["training"]["patience"],
-        cutoff_ratio=cfg["training"]["cutoff_ratio"],
-        lr=lr,
-        temperature=temperature,
-        ssl_train_loader=ssl_train_loader,
-        ssl_val_loader=ssl_val_loader,
-        lp_train_loader=lp_train_loader,
-        lp_val_loader=lp_val_loader,
-        device=device,
-        version=VERSION,
-        output_path=cfg["paths"]["output_dir"],
-        augs_idx=augs_idx,
-        use_enhanced=cfg["training"]["use_enhanced"],
+        params=params,
+        loaders=loaders,
+        args=args,
         trial=trial
     )
 
     training_time = time.time() - start_time
 
+    # Save checkpoint
+    ckpt_path = os.path.join(output_dir, f"ssl_model_{cfg['experiment_name']}_{VERSION}.pt")
+    save_checkpoint(model, ckpt_path)
+
+    print("Loading best model (val_accuracy = {:.4f})".format(best_acc))
+    model.load_state_dict(best_state)
+    best_model_path = os.path.join(output_dir, f"ssl_best_model_{VERSION}.pt")
+    save_checkpoint(model, best_model_path)
+
     # -------------------------------------------------
     # Extract features
     # -------------------------------------------------
     print("\nExtracting backbone features...")
-    full_loader = get_full_loader_for_features(unlabeled_dataset, batch_size=batch_size)
-    features, filenames = extract_backbone_features(model, full_loader, device)
+    dataset = pd.read_csv(cfg['paths']['full_dataset'], sep=";")
+    print(f"Full dataset length: {len(dataset)}")
+    dataset, full_loader = get_ssl_loader(data_root=cfg['paths']['data_root'], dataframe=dataset, batch_size=cfg['training']['batch_size'], transform=base_transform, version=VERSION, shuffle=False)
+    features, _, filenames = extract_backbone_features(model, full_loader, device)
 
     # -------------------------------------------------
     # Save results
@@ -152,14 +192,24 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
     np.save(feat_path, features)
     np.save(name_path, filenames)
 
-    # Save checkpoint
-    ckpt_path = os.path.join(output_dir, f"ssl_model_{cfg['experiment_name']}_{VERSION}.pt")
-    save_checkpoint(model, ckpt_path)
+    # -------------------------------------------------
+    # Save the predictions
+    # -------------------------------------------------
+    train_feats, train_labels, _ = extract_backbone_features(model, train_loader, device)
+    val_feats, val_labels, _ = extract_backbone_features(model, val_loader, device)
 
-    print("Loading best model (val_accuracy = {:.4f})".format(best_acc))
-    model.load_state_dict(best_state)
-    best_model_path = os.path.join(output_dir, f"ssl_best_model_{VERSION}.pt")
-    save_checkpoint(model, best_model_path)
+    clf, lp_val_accuracy, _ = run_linear_probe(train_feats, train_labels, val_feats, val_labels)
+    predictions = clf.predict(features)
+    df_pred = pd.DataFrame({
+        "filename": filenames,
+        "linear_pred": predictions
+    })
+
+    df_full = pd.read_csv(cfg['paths']['full_dataset'], sep=";")
+    df_merged = df_full.merge(df_pred, on="filename", how="left")
+    df_merged.to_csv(f"{cfg['paths']['output_dir']}/predictions_model_{VERSION}.csv", sep=";")
+    print(f"Saved predictions CSV for clf with accuracy {lp_val_accuracy:.4f}.")
+
 
     # -------------------------------------------------
     # Summary
@@ -168,10 +218,10 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
     print(f"Experiment:       {cfg['experiment_name']}")
     print(f"Stop epoch:       {stop_epoch}")
     print(f"Final accuracy:   {history['val_accuracy'].iloc[-1]:.4f}")
-    print(f"Final loss:       {history['contrastive_loss'].iloc[-1]:.4f}")
-    print(f"Training time:    {training_time:.2f} sec")
+    print(f"Final loss:       {history['val_loss'].iloc[-1]:.4f}")
+    print(f"Training time:    {int(training_time//3600):.2f}h {(training_time%3600)/60:.2f}min")
     print(f"Features saved:   {feat_path}")
     print(f"Model saved:      {ckpt_path}")
     print("=================================\n")
 
-    return model, history, stop_epoch
+    return model, features, filenames, history, stop_epoch, df_merged

@@ -3,9 +3,10 @@ import argparse
 # Experiment entry points
 from experiments.run_ssl import run_ssl_experiment
 from experiments.run_plots import run_plot3d_embeddings
-from experiments.run_classifier import train_linear_models
+from experiments.run_classifier import train_linear_models, train_mlp_classifier
 from config.config import load_config
 from training.hyperparameter_tunning.optuna_ssl import run_ssl_optuna
+from data.datasets import get_dataset_split
 
 def main():
     parser = argparse.ArgumentParser(description="Meteor Representation Learning Pipeline")
@@ -14,7 +15,7 @@ def main():
         "--task",
         type=str,
         required=True,
-        choices=["ssl", "ssl_augs", "ssl_architecture", "ssl_hyptun", "ssl_final_model", "plot_3d_embeddings_vgg", "train_classifiers"],
+        choices=["ssl", "ssl_augs", "ssl_architecture", "ssl_hyptun", "ssl_final_model", "plot_3d_embeddings_vgg", "train_classifiers", "temp"],
         help="Which experiment to run"
     )
 
@@ -53,6 +54,10 @@ def main():
     
     elif args.task == "train_classifiers":
         train_linear_models(cfg)
+        train_mlp_classifier(cfg)
+
+    elif args.task == "temp":
+        get_dataset_split(full_dataset_csv_path=cfg['full_dataset_path'], output_path=cfg['output_path'])
 
 
 if __name__ == "__main__":

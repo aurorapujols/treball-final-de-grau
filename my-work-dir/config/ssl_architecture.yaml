@@ -1,22 +1,26 @@
 experiment_name: ssl_architecture
 
-experiment_version: "3.4" # (3.1) ResNet-18 + 128-dim   (3.2) ResNet-18 + 256-dim   (3.3) ResNet-50 + 128-dim   (3.4) ResNet-50 + 256-dim
+experiment_version: "3.2" # (3.1) ResNet-18 + 128-dim   (3.2) ResNet-18 + 256-dim   (3.3) ResNet-50 + 128-dim   (3.4) ResNet-50 + 256-dim
 
 paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
-  labels_csv: "../../../data/upftfg26/apujols/processed/dataset_51700.csv"
+  full_dataset: "../../../data/upftfg26/apujols/datasets/dataset_51700.csv"
+  test_set: "../../../data/upftfg26/apujols/datasets/dataset_test.csv"
+  val_set: "../../../data/upftfg26/apujols/datasets/dataset_val.csv"
+  train_set: "../../../data/upftfg26/apujols/datasets/dataset_train.csv"
+  datasets_dir: "../../../data/upftfg26/apujols/datasets"
   output_dir: "logs/training/"
 
 model:
-  res_net_dim: 2048      # 512, 2048
+  res_net_dim: 512      # 512, 2048
   projection_dim: 256   # 128, 256
 
 training:
-  train_with_all_data: False    # or True to train with test and split to evaluate loss
   batch_size: 64
-  num_epochs: 40    # longer training than augmentations, but still small
+  num_epochs: 50
   patience: 5
-  cutoff_ratio: 0.001
   learning_rate: 0.001
   temperature: 0.5
+  cutoff_ratio: 0.001
+  max_gap: 0.3
   use_enhanced: True

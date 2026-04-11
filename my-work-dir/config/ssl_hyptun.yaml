@@ -1,6 +1,6 @@
 experiment_name: ssl_hyperparameter_tuning
 
-experiment_version: "2.0" 
+experiment_version: "1.0"   # 1.1 with accuracy as objective
 
 paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
@@ -15,11 +15,11 @@ training:
   train_with_all_data: False
   batch_size: [32, 64, 128, 256]  # to tune
   num_epochs: 40
-  patience: 5
+  patience: 3
   cutoff_ratio: 0.001
   learning_rate: [1e-4, 1e-2]     # to tune
   temperature: [0.05, 0.5]        # to tune
   use_enhanced: True
 
 optuna:
-  n_trials: 50                    # number of trials (with prunning on)
+  n_trials: 80                    # number of trials (with prunning on)

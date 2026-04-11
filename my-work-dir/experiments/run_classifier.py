@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import copy
 import os
+import joblib
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -40,10 +41,10 @@ def train_logreg(X_train, y_train):
     return grid.best_estimator_, grid.best_params_, grid.best_score_
 
 def train_linear_svm(X_train, y_train):
-    pipe = Pipeline(
+    pipe = Pipeline([
         ("scaler", StandardScaler()),
         ("svm", LinearSVC(max_iter=5000))
-    )
+    ])
 
     param_grid = {
         "svm__C": [0.01, 0.1, 1, 10, 100]
@@ -91,7 +92,7 @@ def get_split(cfg):
     label_map = dict(zip(df['filename'], df['class']))
 
     y = np.array([label_map[f] for f in fnames])
-    label_encoding = {"non-meteor": 0, "meteor": 1}
+    label_encoding = {"unknown": 0, "meteor": 1}
     y = np.array([label_encoding[label] for label in y])
 
     return train_test_split(
@@ -109,10 +110,10 @@ def train_linear_models(cfg):
     output_dir = cfg['paths']['output_dir']
     VERSION = cfg['experiment_version']
     ckpt_path = os.path.join(output_dir, f"lr_model_{VERSION}.pt")
-    save_checkpoint(results['lr_model'], ckpt_path)
+    joblib.dump(results['lr_model'], ckpt_path)
     print(f"Saved LR model at {ckpt_path}")
     ckpt_path = os.path.join(output_dir, f"svm_model_{VERSION}.pt")
-    save_checkpoint(results['svm_model'], ckpt_path)
+    joblib.dump(results['svm_model'], ckpt_path)
     print(f"Saved SVM model at {ckpt_path}")
 
 def train_mlp(model, train_loader, val_loader, device="cuda", epochs=50):
@@ -236,7 +237,7 @@ def train_mlp_classifier(cfg):
     output_dir = cfg['paths']['output_dir']
     VERSION = cfg['experiment_version']
     ckpt_path = os.path.join(output_dir, f"mlp_model_{VERSION}.pt")
-    save_checkpoint(model, ckpt_path)
+    joblib.dump(model, ckpt_path)
     print(f"Saved MLP model at {ckpt_path}")
     history_path = os.path.join(output_dir, f"mlp_history_{VERSION}.csv")
     history.to_csv(history_path, sep=";", index=False)

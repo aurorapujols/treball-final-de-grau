@@ -17,12 +17,14 @@ from transformations.transform import base_transform
 from evaluation.metrics import alignment, uniformity
 
 BASE = os.path.dirname(__file__)
-CSV_PATH =  "../../../../data/upftfg26/apujols/processed/dataset_36164.csv"
-MODEL_PATH = os.path.join(BASE, "optuna_logs", "ssl_model_ssl_optuna_trial_1.25.pt")
-FILENAMES_PATH = os.path.join(BASE, "optuna_logs", "ssl_filenames_ssl_optuna_trial_1.25.npy")
+CSV_PATH =  "../../../../data/upftfg26/apujols/processed/dataset_51700.csv"
+MODEL_PATH = os.path.join(BASE, "optuna_logs", "ssl_best_model_4.1.pt")
+FILENAMES_PATH = os.path.join(BASE, "optuna_logs", "ssl_filenames_ssl_final_model_4.1.npy")
 IMAGES_FOLDER = "../../../../data/upftfg26/apujols/processed/original"
 OUTPUT_FOLDER = os.path.join(BASE, "visualizations")
 best_params = {'backbone_dim': 2048, 'hidden_dim': 1792, 'projection_dim': 512, 'lr': 0.00075326638783747, 'temperature': 0.32793068208441767, 'batch_size': 64}
+
+
 
 # ---------------------------------------
 # Helper functions
@@ -34,18 +36,18 @@ def get_df_from_csv(filepath, sep=";"):
 
 def get_model(filepath=MODEL_PATH):
     model = SSLResNet(
-        backbone_dim=best_params["backbone_dim"],
-        hidden_dim=best_params["hidden_dim"],
-        projection_dim=best_params["projection_dim"]
+        res_net_dim=512,
+        projection_dim=256
     )
     state = torch.load(filepath, map_location="cpu", weights_only=True) 
     model.load_state_dict(state) 
     model.eval()
     return model
 
-def encode_image(model, path, augment=None):
+def encode_image(model, df, augment=None, img_name=None):
     # 1. Load image
-    img = Image.open(path).convert("L")   # ensure grayscale
+    img_path = f"{IMAGES_FOLDER}/{img_name}_CROP_SUMIMG.png"
+    img = Image.open(img_path).convert("L")   # ensure grayscale
     
     # 2. Apply base transform → tensor
     x = base_transform(img)              # shape (1,128,128)
@@ -53,7 +55,7 @@ def encode_image(model, path, augment=None):
     # 3. Apply augmentations if provided
     if augment is not None:
         # augment.one_view expects a batch and filenames
-        x_aug = augment.one_view(x, os.path.basename(path))
+        x_aug = augment.one_view(x, img_name, df.loc[df['filename'] == img_name, "bmin"].iloc[0], df.loc[df['filename'] == img_name, "bmax"].iloc[0])
     else:
         x_aug = x
     
@@ -66,10 +68,10 @@ def encode_image(model, path, augment=None):
     
     return h, z
 
-def collect_features(filenames_path, images_folder, model, augment=None, label=None):
+def collect_features(filenames_path, images_folder, model, use_backbone=True, augment=None, label=None):
     filenames = np.load(filenames_path, allow_pickle=True)
     df = pd.read_csv(CSV_PATH, sep=";")
-    zs = []
+    feats = []
     count = 0
 
     for img_name in filenames:
@@ -78,12 +80,19 @@ def collect_features(filenames_path, images_folder, model, augment=None, label=N
             continue
         my_class = rows.iloc[0]
         if label is None or my_class == label:
-            img_path = os.path.join(images_folder, f"{img_name}_CROP_SUMIMG.png")
-            _, z = encode_image(model=model, path=img_path, augment=augment)
-            zs.append(z.squeeze(0).cpu().numpy())
+            h, z = encode_image(model=model, df=df, augment=augment, img_name=img_name)
+            
+            if use_backbone:
+                # IMPORTANT: Backbone (h) is not usually L2-normalized by the model.
+                # We MUST normalize it here for the Hypersphere metrics to make sense.
+                feat = h / torch.norm(h, p=2, dim=1, keepdim=True)
+            else:
+                feat = z # z is usually already normalized in the model's forward pass
+                
+            feats.append(feat.squeeze(0).cpu().numpy())
             count += 1
 
-    return np.vstack(zs), count   # shape (N, d)
+    return np.vstack(feats), count   # shape (N, d)
 
 def project_to_2d(zs):
     pca = PCA(n_components=2)
@@ -91,6 +100,92 @@ def project_to_2d(zs):
     # Normalize to unit circle
     z2 = z2 / np.linalg.norm(z2, axis=1, keepdims=True)
     return z2
+
+def project_to_circle(zs):
+    """
+    Correctly projects high-dim features to the unit circle for visualization.
+    1. PCA to 2D
+    2. L2 Normalization so all points sit on the circle edge.
+    """
+    pca = PCA(n_components=2)
+    z2 = pca.fit_transform(zs)
+    # This is the step that creates the 'ring' or 'circle' shape for the KDE
+    z2_norm = z2 / np.linalg.norm(z2, axis=1, keepdims=True)
+    return z2_norm
+
+def get_alignment_diagnostic(on_backbone=True):
+    """
+    Computes distances between positive pairs (same image, different augment).
+    """
+    distances = compute_alignments(filenames=FILENAMES_PATH, on_backbone=on_backbone)
+    
+    plt.figure(figsize=(8, 5))
+    # Using density=True makes it a proper probability distribution like the paper
+    plt.hist(distances, bins=30, density=True, color="skyblue", alpha=0.7, edgecolor="black")
+    
+    mean_val = np.mean(distances)
+    plt.axvline(mean_val, color="red", linestyle="--", label=f"Mean: {mean_val:.4f}")
+    
+    plt.title(f"Alignment: Positive Pair Distances\n({'Backbone' if on_backbone else 'Projection Head'})")
+    plt.xlabel("L2 Distance")
+    plt.ylabel("Density")
+    plt.xlim(0, 2) # Max distance on unit sphere is 2
+    plt.legend()
+    plt.grid(axis='y', alpha=0.3)
+    
+    plt.savefig(f"{OUTPUT_FOLDER}/alignment_distribution.png", dpi=300)
+    plt.close()
+
+def get_uniformity_diagnostic_v2(label=None):
+    """
+    Recreates the Wang & Isola Figure 3 visual style.
+    """
+    model = get_model()
+    # Collect features without augmentations for uniformity
+    feats, count = collect_features(FILENAMES_PATH, IMAGES_FOLDER, model, augment=None, label=label)
+    
+    # 1. Project to 2D circle
+    feats2 = project_to_circle(feats)
+    x, y = feats2[:,0], feats2[:,1]
+    angles = np.arctan2(y, x)
+
+    # 2. Compute 2D KDE for the 'circular' heatmap
+    kde2d = gaussian_kde(np.vstack([x, y]))
+    # Grid slightly larger than the circle
+    xx, yy = np.mgrid[-1.3:1.3:150j, -1.3:1.3:150j]
+    grid = np.vstack([xx.ravel(), yy.ravel()])
+    zz = kde2d(grid).reshape(xx.shape)
+
+    # 3. Compute 1D KDE for the Angular Density
+    angle_kde = gaussian_kde(angles)
+    angle_grid = np.linspace(-np.pi, np.pi, 500)
+    angle_density = angle_kde(angle_grid)
+
+    # Visualization
+    fig, (ax_circle, ax_angle) = plt.subplots(1, 2, figsize=(16, 7))
+
+    # Left: The Circle Plot
+    ax_circle.contourf(xx, yy, zz, levels=20, cmap='Blues')
+    # Draw unit circle reference
+    unit_circle = plt.Circle((0,0), 1, color='black', fill=False, linestyle='--', alpha=0.5)
+    ax_circle.add_artist(unit_circle)
+    ax_circle.set_aspect('equal')
+    ax_circle.set_xlim(-1.3, 1.3); ax_circle.set_ylim(-1.3, 1.3)
+    ax_circle.set_title(f"Uniformity: Feature Distribution (n={count})")
+
+    # Right: The Angle Plot
+    ax_angle.fill_between(angle_grid, angle_density, color='blue', alpha=0.3)
+    ax_angle.plot(angle_grid, angle_density, color='darkblue', lw=2)
+    ax_angle.set_xticks([-np.pi, 0, np.pi])
+    ax_angle.set_xticklabels([r'$-\pi$', '0', r'$\pi$'])
+    ax_angle.set_title("Uniformity: Angular Density")
+    ax_angle.set_xlabel("Angle (radians)")
+
+    plt.tight_layout()
+    label_str = label if label is not None else "all_classes"
+    plt.savefig(f"{OUTPUT_FOLDER}/uniformity_diag_{label_str}.png", dpi=300)
+    plt.close()
+
 
 # ---------------------------------------
 # 1. Optuna trials' results
@@ -137,14 +232,15 @@ def get_trials_metrics(trials=50):
 # ---------------------------------------
 # 2. Alignment
 # ---------------------------------------
-def compute_alignments(filenames, on_backbone=False):
+def compute_alignments(filenames, on_backbone=True):
     distances = []
     model = get_model()
-    augmentfn = ControlledAugment()
+    augmentfn = ControlledAugment(use_enhanced=True)
     filenames = np.load(filenames, allow_pickle=True)
+    df = pd.read_csv(CSV_PATH, sep=";")
     for img_name in filenames:
-        hi, zi = encode_image(model=model, path=f"{IMAGES_FOLDER}/{img_name}_CROP_SUMIMG.png", augment=augmentfn)
-        hj, zj = encode_image(model=model, path=f"{IMAGES_FOLDER}/{img_name}_CROP_SUMIMG.png", augment=augmentfn)
+        hi, zi = encode_image(model=model, df=df, augment=augmentfn, img_name=img_name)
+        hj, zj = encode_image(model=model, df=df, augment=augmentfn, img_name=img_name)
         xi_norm = zi
         xj_norm = zj
         if on_backbone:
@@ -313,8 +409,11 @@ def get_uniformity_diagnostic(model_path=MODEL_PATH,
 # MAIN
 # ---------------------------------------
 if __name__ == "__main__":
-
-    # get_trials_metrics()          # 1. To see which models performed best
-    get_alignment_histogram()     # 2. To see the histogram of alignment (distances between two positive augmentations)
-    # get_uniformity_plots()        # 3. To see the plots for uniformity (angle & PCA in hypersphere)
-    # get_uniformity_diagnostic(label=None)    # 4. Uniformity diagnostic
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    
+    # Run the specific diagnostics based on your code logic
+    print("Computing Alignment...")
+    get_alignment_diagnostic(on_backbone=True)
+    
+    print("Computing Uniformity for all classes...")
+    get_uniformity_diagnostic_v2(label=None)

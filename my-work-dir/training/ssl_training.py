@@ -13,43 +13,33 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 
 from losses.losses import ContrastiveLoss
-from transformations.augment import ControlledAugment, RandomAffineMeanFill
+from transformations.augment import ControlledAugment, ControlledAugmentGPU
 from evaluation.linear_probe import run_linear_probe
 from evaluation.metrics import StreamingMetrics
 from utils.plotting import save_plot_augmentations
 
 def extract_backbone_features(model, dataloader, device):
     model.eval()
-    feats, labels = [], []
+    feats, labels, filenames = [], [], []
 
     with torch.no_grad():
         for batch in dataloader:
-
-            # Case 1: SSL loader → (img, label, Bmin, Bmax)
-            if len(batch) == 4:
-                imgs, lbls, _, _ = batch
-
-            # Case 2: LP loader → (img, label)
-            elif len(batch) == 2:
-                imgs, lbls = batch
-
-            else:
-                raise ValueError(f"Unexpected batch size: {len(batch)}")
-
+            imgs, fnames, _, _, lbls = batch
             imgs = imgs.to(device)
             h, _ = model(imgs)
             feats.append(h.cpu())
             labels.extend(lbls)
+            filenames.extend(fnames)
 
     feats = torch.cat(feats, dim=0).numpy()
     labels = np.array(labels)
-    return feats, labels
+    return feats, labels, filenames
     
-def compute_val_loss(device, model, ssl_val_loader, augmentfn, lossfn):
+def compute_loss(device, model, loader, augmentfn, lossfn):
     model.eval()
     val_total = 0.0
     with torch.no_grad():
-        for images, fnames, bmins, bmaxs in ssl_val_loader:
+        for images, fnames, bmins, bmaxs, labels in loader:
             x_i, x_j = augmentfn(images, fnames, bmins, bmaxs)
             x_i = x_i.to(device)
             x_j = x_j.to(device)
@@ -59,34 +49,59 @@ def compute_val_loss(device, model, ssl_val_loader, augmentfn, lossfn):
             
             val_total += lossfn(z_i, z_j).item()
             
-        ssl_val_loss = val_total / len(ssl_val_loader)
+        ssl_val_loss = val_total / len(loader)
     
     return ssl_val_loss
 
-def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_train_loader, ssl_val_loader, lp_train_loader, lp_val_loader, device="cpu", version=None, output_path=None, augs_idx=None, use_enhanced=False, trial=None):
+def compute_loss_gpu(device, model, loader, augmentfn, lossfn):
+    model.eval()
+    val_total = 0.0
+    with torch.no_grad():
+        for images, fnames, bmins, bmaxs, labels in loader:
+            images = images.to(device, non_blocking=True)
+            bmins = bmins.to(device, non_blocking=True).float()
+            bmaxs = bmaxs.to(device, non_blocking=True).float()
+
+            x_i, x_j = augmentfn(images, fnames, bmins, bmaxs)
+
+            _, z_i = model(x_i)
+            _, z_j = model(x_j)
+
+            val_total += lossfn(z_i, z_j).item()
+
+    ssl_val_loss = val_total / len(loader)
+    return ssl_val_loss
+
+def train_ssl(model, params, loaders, args, trial=None):
 
     print("Starting SSL training...")
+    device = args['device']
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=params['learning_rate'])
+    # optimizer = torch.optim.SGD(
+    #     model.parameters(),
+    #     lr=params['learning_rate'],
+    #     momentum=0.7,          # classical momentum
+    # )
     scheduler = ExponentialLR(optimizer, gamma=0.95)
-    lossfn = ContrastiveLoss(temperature).to(device)
+    lossfn = ContrastiveLoss(temperature=params['temperature']).to(device)
 
-    if use_enhanced:
-        augmentfn = ControlledAugment(augs_idx, use_enhanced=use_enhanced)    #img_transforms_path="../../../data/upftfg26/apujols/processed")
-    else:
-        augmentfn = ControlledAugment(augs_idx, use_enhanced=use_enhanced)
+    use_enhanced = args['use_enhanced']
+    augs_idx = args['augs_idx']
+    
+    augmentfn = ControlledAugmentGPU(augs_idx=augs_idx, use_enhanced=use_enhanced) #.to(device)
 
     avg_loss = float("inf")
     patience_count = 0
-    stop_epoch = num_epochs
+    stop_epoch = params['num_epochs']
     eval_every = 1
-    debug = True
     best_acc = -float("inf")
     best_state = None
+    debug = False
 
-    history = pd.DataFrame(columns=["epoch", "schedule", "contrastive_loss", "val_accuracy", "train_accuracy", "uniformity", "alignment", "std", "time"])
+    history = pd.DataFrame(columns=["epoch", "schedule", "val_loss", "train_loss", "val_accuracy", "train_accuracy", "uniformity", "alignment", "std", "time"])
 
-    for epoch in range(num_epochs):
+    for epoch in range(params['num_epochs']):
 
         training_start = time.time()
         model.train()
@@ -95,22 +110,35 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
         # Metrics        
         metrics = StreamingMetrics(alpha=2, t=2)
 
-        for batch_idx, (images, fnames, bmins, bmaxs) in enumerate(ssl_train_loader):
-            x_i, x_j = augmentfn(images, fnames, bmins, bmaxs)       # CPU augment
+        for batch_idx, (images, fnames, bmins, bmaxs, labels) in enumerate(loaders['train_loader']):
+            images = images.to(device, non_blocking=True)   # (B,1,128,128) in [0,1]
+            bmins = bmins.to(device, non_blocking=True).float()
+            bmaxs = bmaxs.to(device, non_blocking=True).float()
+            
+            x_i, x_j = augmentfn(images, fnames, bmins, bmaxs)       # GPU augment
 
-            x_i = x_i.to(device, non_blocking=True)
-            x_j = x_j.to(device, non_blocking=True)
+            # x_i = x_i.to(device, non_blocking=True)
+            # x_j = x_j.to(device, non_blocking=True)
 
             # For debugging the image and its augmentations
-            if debug and epoch == 0 and batch_idx == 0:
-                os.makedirs(f"{output_path}", exist_ok=True)
-                if epoch==0 and batch_idx==0:
-                    imgs_orig = images.cpu().numpy()
-                    imgs_i = x_i.cpu().numpy()
-                    imgs_j = x_j.cpu().numpy()
-                    print("Going to print the triplets...")
-                    save_plot_augmentations(img_orig=imgs_orig[0, 0], img_i=imgs_i[0, 0], img_j=imgs_j[0, 0], save_path=output_path, version=version)
-    
+            if debug and epoch == 0 and batch_idx < 5:
+                os.makedirs(f"{args['output_path']}/debug_augs", exist_ok=True)
+
+                imgs_orig = images.cpu().numpy()
+                imgs_i = x_i.cpu().numpy()
+                imgs_j = x_j.cpu().numpy()
+
+                N = min(2, images.size(0))  # print 2 samples per batch
+
+                for k in range(N):
+                    save_plot_augmentations(
+                        img_orig=imgs_orig[k, 0],
+                        img_i=imgs_i[k, 0],
+                        img_j=imgs_j[k, 0],
+                        save_path=f"{args['output_path']}batch{batch_idx}_sample{k}.png",
+                        version=args['version']
+                    )
+
             optimizer.zero_grad()
             _, z_i = model(x_i)
             _, z_j = model(x_j)
@@ -125,7 +153,7 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
 
         scheduler.step()
         
-        ssl_train_loss = total_loss / len(ssl_train_loader)
+        ssl_train_loss = total_loss / len(loaders['train_loader'])
         
         current_lr = scheduler.get_last_lr()[0]
         epoch_time = time.time() - training_start
@@ -134,8 +162,8 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
         # SSL Validation loss (optional)
         # -----------------------------------
         ssl_val_loss = None
-        if ssl_val_loader is not None:
-            ssl_val_loss = compute_val_loss(device, model, ssl_val_loader, augmentfn, lossfn)
+        if loaders['val_loader'] is not None:
+            ssl_val_loss = compute_loss_gpu(device, model, loaders['val_loader'], augmentfn, lossfn)
         
         # -----------------------------------
         # Obtain epoch metrics
@@ -143,21 +171,23 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
         epoch_alignment, epoch_uniformity = metrics.compute()
 
         # Train linear probe to get new accuracy
-        if epoch % eval_every == 0 or epoch == num_epochs - 1:
+        lp_val_accuracy = float("nan")
+        lp_train_accuracy = float("nan")
+        embeddings_std = float("nan")
+        if epoch % eval_every == 0 or epoch == params['num_epochs'] - 1:
             with torch.no_grad(): 
-                train_feats, train_labels = extract_backbone_features(model, lp_train_loader, device)
+                train_feats, train_labels, _ = extract_backbone_features(model, loaders['train_loader'], device)
                 embeddings_std = float(train_feats.std(axis=0).mean())
-                val_feats, val_labels = extract_backbone_features(model, lp_val_loader, device)
+                val_feats, val_labels, _ = extract_backbone_features(model, loaders['val_loader'], device)
 
-                lp_val_accuracy, lp_train_accuracy = run_linear_probe(train_feats, train_labels, val_feats, val_labels)
-            
+                clf, lp_val_accuracy, lp_train_accuracy = run_linear_probe(train_feats, train_labels, val_feats, val_labels)
         
-        contrastive_loss = ssl_val_loss if ssl_val_loss is not None else ssl_train_loss
         # Append to DataFrame
         history.loc[len(history)] = {
             "epoch": epoch + 1,
             "schedule": current_lr,
-            "contrastive_loss": contrastive_loss,
+            "val_loss": ssl_val_loss,
+            "train_loss": ssl_train_loss,
             "val_accuracy": lp_val_accuracy,
             "train_accuracy": lp_train_accuracy,
             "uniformity": epoch_uniformity,
@@ -169,25 +199,24 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
         # ------------------------------
         # Early stopping
         # ------------------------------
-        if ssl_val_loss is not None:
-            improvement = (avg_loss - ssl_val_loss) / max(avg_loss, 1e-8)
-            avg_loss = ssl_val_loss
-        else:
-            improvement = (avg_loss - ssl_train_loss) / max(avg_loss, 1e-8)
-            avg_loss = ssl_train_loss
-            
-        if improvement < cutoff_ratio:
+        # generalization gap & improvement
+        gap = (ssl_train_loss - ssl_val_loss) / max(ssl_val_loss, 1e-8)
+        improvement = (avg_loss - ssl_val_loss) / max(avg_loss, 1e-8)
+        
+        if gap > params["max_gap"] or improvement < params["cutoff_ratio"]:
             patience_count += 1
-            if patience_count >= patience:
-                print("Early stopping triggered.")
+            if patience_count >= params['patience']:
+                print(f"Early stopping triggered. Gap={gap:.4f}")
                 stop_epoch = epoch + 1
                 break
         else:
             patience_count = 0
+        avg_loss = ssl_val_loss
 
         print(
             f"Epoch {epoch:03d} | "
-            f"Loss: {contrastive_loss:.4f} | "
+            f"TrainLoss {ssl_train_loss:.4f} | "
+            f"ValLoss: {ssl_val_loss:.4f} | "
             f"LR: {current_lr:.6e} | "
             f"Δ: {improvement:.6f} | "
             f"Accuracy: {lp_val_accuracy:.6f} | "
@@ -200,9 +229,8 @@ def train_ssl(model, num_epochs, patience, cutoff_ratio, lr, temperature, ssl_tr
             best_acc = lp_val_accuracy
             best_state = copy.deepcopy(model.state_dict())
 
-
         if trial is not None:
-            trial.report(lp_val_accuracy, epoch)
+            trial.report(ssl_val_loss, epoch)
 
             if trial.should_prune():
                 raise optuna.TrialPruned()

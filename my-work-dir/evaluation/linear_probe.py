@@ -15,4 +15,5 @@ def run_linear_probe(train_feats, train_labels, val_feats, val_labels, max_iters
     val_acc = accuracy_score(val_labels, val_pred)
     train_acc = accuracy_score(train_labels, train_pred)
 
-    return val_acc, train_acc
+    return clf, val_acc, train_acc
+

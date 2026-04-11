@@ -53,11 +53,11 @@ def run_ssl_optuna(cfg):
         trial.set_user_attr("training_time", f"{hours}:{minutes}:{seconds}")
         trial.set_user_attr("history_path", f"{cfg['paths']['output_dir']}/ssl_history_{cfg['experiment_name']}_{cfg['experiment_version']}.csv")
 
-        return final_acc
+        return final_loss
 
     study = optuna.create_study(
         study_name=cfg["experiment_name"],
-        direction="maximize",
+        direction="minimize",
         storage=f"sqlite:///{cfg['paths']['output_dir']}/optuna_ssl{cfg['experiment_version']}.db", 
         load_if_exists=True, 
         pruner=optuna.pruners.MedianPruner(n_warmup_steps=20), 

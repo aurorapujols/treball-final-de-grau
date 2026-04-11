@@ -24,7 +24,7 @@ def save_plot_augmentations(img_orig, img_i, img_j, save_path, version):
     axes[2].set_title("aug2")
 
     plt.tight_layout()
-    out_path = os.path.join(save_path, f"triplet_v{version}.png")
+    out_path = os.path.join(save_path)
     fig.savefig(out_path, dpi=150)
     plt.close()
 
