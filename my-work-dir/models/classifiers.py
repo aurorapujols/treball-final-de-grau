@@ -1,3 +1,5 @@
+import torch
+import numpy as np
 import torch.nn as nn
 
 from sklearn.pipeline import Pipeline
@@ -5,6 +7,18 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV
 from sklearn.svm import LinearSVC
+
+def predict(model, X, threshold=None):
+
+    y_probs = model.predict_proba(X)
+
+    if threshold is not None:
+        y_pred = (y_probs[:, 1] > threshold).astype(int)
+
+    else:
+        y_pred = model.predict(X)
+
+    return y_pred, y_probs
 
 def train_logreg(X_train, y_train):
     pipe = Pipeline([
@@ -47,14 +61,40 @@ def train_linear_svm(X_train, y_train):
     return grid.best_estimator_, grid.best_params_, grid.best_score_
 
 class MLPClassifier(nn.Module):
-    def __init__(self, input_dim, hidden_dim=256, dropout=0.3):
+    def __init__(self, input_dim, hidden_dim=16, dropout=0.3):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
+            # nn.Dropout(dropout),
             nn.Linear(hidden_dim, 1)   # ONE output
         )
 
     def forward(self, x):
         return self.net(x)  # raw logit
+    
+    def predict_proba(self, X):
+        self.eval()
+        with torch.no_grad():
+            # Convert numpy → tensor
+            if isinstance(X, np.ndarray):
+                X = torch.tensor(X, dtype=torch.float32)
+
+            # Move X to the same device as the model
+            device = next(self.parameters()).device
+            X = X.to(device)
+
+            logits = self.forward(X)
+
+            # Move back to CPU for numpy
+            p1 = torch.sigmoid(logits).cpu().numpy().flatten()
+            p0 = 1 - p1
+
+            return np.vstack([p0, p1]).T
+        
+    def predict(self, X):
+        probs = self.predict_proba(X)
+        preds = (probs[:, 1] > 0.5).astype(int)
+
+        return np.array(preds)

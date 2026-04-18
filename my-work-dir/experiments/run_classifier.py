@@ -16,10 +16,10 @@ from data.dataloaders import get_ssl_loader
 
 def train_linear_models(X_train, X_val, y_train, y_val):  
 
-    print("Training Logistic Regression ...")
+    print("\nTraining Logistic Regression ...")
     lr_model, lr_C, lr_acc = classifiers.train_logreg(X_train, y_train)
     
-    print("Training Support Vector Machine ...")
+    print("\nTraining Support Vector Machine ...")
     svm_model, svm_C, svm_acc = classifiers.train_linear_svm(X_train, y_train)
     
     print("\n=== Summary ===")
@@ -27,19 +27,26 @@ def train_linear_models(X_train, X_val, y_train, y_val):
     print(f"SVM best: C={svm_C}, acc={svm_acc:.4f}")
     y_pred_lr = lr_model.predict(X_val)
     y_pred_svm = svm_model.predict(X_val)
-    print(f"(Validation Accuracy)    Logistic Regression: {np.sum(y_pred_lr == y_val)} | Support Vector Machine: {np.sum(y_pred_svm == y_val)}")
+    print(f"(Validation Accuracy)    Logistic Regression: {np.sum(y_pred_lr == y_val)/len(y_pred_lr):.4f} | Support Vector Machine: {np.sum(y_pred_svm == y_val)/len(y_pred_svm):.4f}")
 
     return lr_model, svm_model
 
-def train_mlp(X_train, X_val, y_train, y_val, epochs=50, batch_size=64, lr=1e-3, device="cuda"):
+def train_mlp(X_train, X_val, y_train, y_val, epochs=50, batch_size=64, lr=5e-5, device="cuda"):
     
-    print("Training Multilayer Perceptron ...")
+    print("\nTraining Multilayer Perceptron ...")
     model = classifiers.MLPClassifier(input_dim=X_train.shape[1])
 
+    best_val_acc = 0.0
+    best_model_state = None
+
     # Convert numpy → torch
-    X_train = torch.tensor(X_train, dtype=torch.float32)
-    y_train = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
+    X_train = torch.tensor(X_train, dtype=torch.float32)    
     X_val   = torch.tensor(X_val, dtype=torch.float32)
+
+    label_map = {"meteor": 1.0, "unknown": 0.0}
+    y_train = np.array([label_map[y] for y in y_train])
+    y_val   = np.array([label_map[y] for y in y_val])
+    y_train = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
     y_val   = torch.tensor(y_val, dtype=torch.float32).unsqueeze(1)
 
     # Dataloaders
@@ -50,7 +57,7 @@ def train_mlp(X_train, X_val, y_train, y_val, epochs=50, batch_size=64, lr=1e-3,
     
     # Loss + optimizer
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)  # with L2 regularization
 
     model.to(device)
     
@@ -104,9 +111,14 @@ def train_mlp(X_train, X_val, y_train, y_val, epochs=50, batch_size=64, lr=1e-3,
         val_loss = np.mean(val_losses)
         val_acc = val_correct / val_total
 
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_model_state = model.state_dict()
+
+
         # Store in history
         history.loc[len(history)] = [
-            epoch, train_loss, val_loss, train_acc, val_acc
+            epoch, val_loss, train_loss, val_acc, train_acc
         ]
 
         print(f"Epoch {epoch:03d} | "
@@ -115,6 +127,8 @@ def train_mlp(X_train, X_val, y_train, y_val, epochs=50, batch_size=64, lr=1e-3,
         
     print(f"================ MLP ==================")
     print(f"mlp_acc={history['val_accuracy'].max()}")
+
+    model.load_state_dict(best_model_state)
 
     return model, history
 
@@ -174,7 +188,7 @@ def train_classifiers(cfg):
     # ------------------------------------
     # Train the non-linear model
     # ------------------------------------
-    mlp_model, history = train_mlp(X_train, X_val, y_train, y_val, epochs=1000)
+    mlp_model, history = train_mlp(X_train, X_val, y_train, y_val, epochs=60)
 
 
     # ------------------------------------

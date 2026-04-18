@@ -6,7 +6,7 @@ paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
   datasets_dir: "../../../data/upftfg26/apujols/datasets"
   full_dataset: "../../../data/upftfg26/apujols/datasets/dataset_51700.csv"
-  output_dir: "logs/plots"
+  output_dir: "logs/training"
 
-ssl_model_path: "../../../data/upftfg26/apujols/models/ssl_final_model.pt"
+ssl_model_path: "../../../data/upftfg26/apujols/models/ssl_final_model1.0.pt"
 batch_size: 128

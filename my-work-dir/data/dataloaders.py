@@ -4,7 +4,7 @@ import os
 from torch.utils.data import DataLoader, Dataset, Subset
 from sklearn.model_selection import train_test_split
 
-from .datasets import MyMeteorDataset, TwoViewDataset
+from .datasets import MyMeteorDataset, TwoViewDataset, CSVImageDataset
 from .collate import pad_collate
 
 
@@ -27,6 +27,15 @@ def get_two_view_loader(data_root, dataframe, batch_size, transform, version=Non
         shuffle=shuffle,
         pin_memory=True,
         num_workers=4
+    )
+    return dataset, loader
+
+def get_csv_loader(data_root, dataframe, transform):
+    dataset = CSVImageDataset(df=dataframe, imgs_folder=data_root, transform=transform)
+    loader = DataLoader(
+        dataset=dataset,
+        batch_size=64,
+        shuffle=False
     )
     return dataset, loader
 

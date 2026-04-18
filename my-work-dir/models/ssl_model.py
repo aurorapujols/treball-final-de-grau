@@ -2,18 +2,14 @@ import torch
 import numpy as np
 import torch.nn as nn
 
-from PIL import Image
-
 from .modules import SSLBackbone, SSLBackboneResNet, SSLProjectionHead, SSLProjectionHeadSimCLR
-from transformations.transform import base_transform
-from transformations.augment import ControlledAugmentGPU
 
 def get_model(filepath):
     model = SSLResNet(
         res_net_dim=512,
         projection_dim=256
     )
-    state = torch.load(filepath, map_location="cpu", weights_only=True) 
+    state = torch.load(filepath, weights_only=True) 
     model.load_state_dict(state) 
     model.eval()
     return model
@@ -26,13 +22,13 @@ def get_encoding_and_projection(model, dataloader, device):
     labels = []
 
     with torch.no_grad():
-        for imgs, fnames, _, _, lbls in dataloader:
-            h, z = model.project_and_encode(imgs)
+        for imgs, _, _, _, lbls in dataloader:
+            h, z = model.encode_and_project(imgs)
 
             H.append(h.cpu().numpy())
             Z.append(z.cpu().numpy())
 
-            labels.ectend(lbls)
+            labels.extend(lbls)
     
     return (
         np.vstack(H),   # X_backbone
@@ -41,34 +37,27 @@ def get_encoding_and_projection(model, dataloader, device):
     )
 
 def get_two_augmentations_projection(model, dataloader, device):
+    # 1. Ensure the entire model (including projector) is on the GPU
+    model.to(device) 
     model.eval()
-
-    Z_i = []        # projection of augmentation 1
-    Z_j = []        # projection of augmentation 2
-    labels = []
-
+    
+    all_zi, all_zj = [], []
+    
     with torch.no_grad():
         for x_i, x_j, lbls in dataloader:
+            # 2. Move inputs to the same device as the model
             x_i = x_i.to(device)
             x_j = x_j.to(device)
-
-            # First augmented view
-            _, z_i = model.project(x_i)
-
-            # Second augmented view
-            _, z_j = model.project(x_j)
-
-            # Alignment uses both
-            Z_i.append(z_i.cpu().numpy())
-            Z_j.append(z_j.cpu().numpy())
-
-            labels.extend(lbls)
-
-    return (
-        np.vstack(Z_i),        # X_projection_head_i
-        np.vstack(Z_j),        # X_projection_head_j
-        np.array(labels)
-    )
+            
+            # 3. Forward pass
+            _, z_i = model.encode_and_project(x_i)
+            _, z_j = model.encode_and_project(x_j)
+            
+            # Move back to CPU immediately to avoid GPU memory overflow
+            all_zi.append(z_i.cpu())
+            all_zj.append(z_j.cpu())
+            
+    return torch.cat(all_zi), torch.cat(all_zj)
 
 def compute_augmentations_distance(Z_i, Z_j):
     return np.linalg.norm(Z_i - Z_j, axis=1)
@@ -85,7 +74,7 @@ class SSLModel(nn.Module):
         return h, z
     
 class SSLResNet(nn.Module):
-    def __init__(self, res_net_dim=512, projection_dim=128):
+    def __init__(self, res_net_dim=512, projection_dim=256):
         super().__init__()
         self.encoder = SSLBackboneResNet(res_net_dim=res_net_dim)
         self.projector = SSLProjectionHeadSimCLR(in_dim=res_net_dim, out_dim=projection_dim)

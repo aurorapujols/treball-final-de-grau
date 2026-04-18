@@ -31,7 +31,7 @@ class MyMeteorDataset(Dataset):
         ])
 
         self.dataset = dataset[dataset["filename"].isin(self.files)].sort_values("filename").reset_index(drop=True)
-
+        
     def __len__(self):
         return len(self.files)
 
@@ -79,21 +79,51 @@ class TwoViewDataset(Dataset):
         row = self.dataset.iloc[idx]
 
         fname = self.files[idx]
+        # Ensure these are tensors for the GPU augmentation logic
+        bmin = torch.tensor([row["bmin"]])
+        bmax = torch.tensor([row["bmax"]])
         label = row["class"]
 
-        ending = "_CROP_SUMIMG" # if (self.version[:2] in VERSIONS_ORIGINAL_IMAGES) else ENHANCED_SUFFIX
+        ending = "_CROP_SUMIMG"
         img_path = os.path.join(self.folder, fname + f"{ending}.png")
 
         img = Image.open(img_path).convert('L')
-        # img = np.array(img, dtype=np.uint8)         # GPU
-        # img = torch.from_numpy(img).unsqueeze(0)    # (1, H, W)
+
+        if self.transform:
+            img = self.transform(img) # Now img is [1, H, W]
+
+        # 1. Add batch dimension: [1, 1, H, W]
+        img_batch = img.unsqueeze(0)
+
+        # 2. Apply augmentation and then squeeze back to [1, H, W]
+        x_i = self.augmentfn.one_view(img_batch, bmin, bmax).squeeze(0)
+        x_j = self.augmentfn.one_view(img_batch, bmin, bmax).squeeze(0)
+
+        return x_i, x_j, label
+    
+class CSVImageDataset(torch.utils.data.Dataset):
+    def __init__(self, df, imgs_folder, transform=None):
+        self.df = df
+        self.imgs_folder = imgs_folder
+        self.transform = transform
+
+        self.label_map = {"meteor": 1, "non-meteor": 0, "unknown": 0, 0: 0, 1: 1}
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        img_path = os.path.join(self.imgs_folder, f"{row['filename']}_CROP_SUMIMG.png")
+        raw_label = row["class"]   # assumes 0/1 labels
+        label = self.label_map[raw_label]   # now an integer
+
+        img = Image.open(img_path).convert("RGB")
 
         if self.transform:
             img = self.transform(img)
-        x_i = self.augmentfn(img)
-        x_j = self.augmentfn(img)
 
-        return x_i, x_j, label 
+        return img, label
 
 def split_dataset(dataset, output_path, test_frac=0.1, val_frac=0.1, seed=42):
 

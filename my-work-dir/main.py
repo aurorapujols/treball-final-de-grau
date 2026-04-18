@@ -1,21 +1,23 @@
 import argparse
+import time
 
 # Experiment entry points
 from experiments.run_ssl import run_ssl_experiment
-from experiments.run_plots import run_plot3d_embeddings
+from experiments.run_plots import plot_model_results
 from experiments.run_classifier import train_classifiers
 from config.config import load_config
 from training.hyperparameter_tunning.optuna_ssl import run_ssl_optuna
 from data.datasets import get_dataset_split
 
 def main():
+    
     parser = argparse.ArgumentParser(description="Meteor Representation Learning Pipeline")
 
     parser.add_argument(
         "--task",
         type=str,
         required=True,
-        choices=["ssl", "ssl_augs", "ssl_architecture", "ssl_hyptun", "ssl_final_model", "plot_3d_embeddings_vgg", "train_classifiers", "temp"],
+        choices=["ssl", "ssl_augs", "ssl_architecture", "ssl_hyptun", "ssl_final_model", "plot_results", "train_classifiers", "temp"],
         help="Which experiment to run"
     )
 
@@ -46,8 +48,8 @@ def main():
     elif args.task == "ssl_hyptun":
         run_ssl_optuna(cfg)
 
-    elif args.task == "plot_3d_embeddings_vgg":
-        run_plot3d_embeddings(cfg)
+    elif args.task == "plot_results":
+        plot_model_results(cfg)
 
     elif args.task == "ssl_final_model":
         run_ssl_experiment(cfg)
@@ -60,4 +62,12 @@ def main():
 
 
 if __name__ == "__main__":
+    start_time = time.time()
     main()
+    end_time = time.time() - start_time
+
+    # Calculate hours, minutes, and seconds
+    hours, rem = divmod(end_time, 3600)
+    minutes, seconds = divmod(rem, 60)
+
+    print(f"Elapsed time: {int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}")
