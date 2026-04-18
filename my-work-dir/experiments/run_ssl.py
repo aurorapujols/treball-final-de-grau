@@ -16,7 +16,7 @@ from evaluation.linear_probe import run_linear_probe
 
 
 
-def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
+def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None, lr=None, temperature=None, batch_size=None):
     """
     Runs a full SSL experiment:
       1. Load unlabeled dataset
@@ -25,7 +25,7 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
       4. Extract features
       5. Save results
     """
-
+    debug = True
     print("\n========== SSL EXPERIMENT ==========")
     print(f"Experiment: {cfg['experiment_name']}")
 
@@ -44,33 +44,15 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
         VERSION = cfg['experiment_version']
     print(f"VERSION={VERSION}")
 
-    lr = trial.params["lr"] if trial else cfg["training"]["learning_rate"]
-    temperature = trial.params["temperature"] if trial else cfg["training"]["temperature"]
-    batch_size = trial.params["batch_size"] if trial else cfg["training"]["batch_size"]
-
+    if lr is None and temperature is None and batch_size is None:
+        lr = trial.params["lr"] if trial else cfg["training"]["learning_rate"]
+        temperature = trial.params["temperature"] if trial else cfg["training"]["temperature"]
+        batch_size = trial.params["batch_size"] if trial else cfg["training"]["batch_size"]
 
     # -------------------------------------------------
     # Load datasets
     # -------------------------------------------------
     print("\nLoading datasets...")
-
-    # if cfg['training']['train_with_all_data']:
-    #     unlabeled_dataset, ssl_train_loader = get_ssl_loader(
-    #         data_root=cfg["paths"]["data_root"],
-    #         csv_file=cfg["paths"]["labels_csv"],
-    #         batch_size=batch_size,
-    #         transform=base_transform,
-    #         version=VERSION
-    #     )
-    # else:
-    #     unlabeled_dataset, ssl_train_loader, ssl_val_loader, train_idx, val_idx = get_ssl_loaders(
-    #         data_root=cfg["paths"]["data_root"],
-    #         csv_file=cfg["paths"]["labels_csv"],
-    #         batch_size=batch_size,
-    #         transform=base_transform,
-    #         val_split=0.2,
-    #         version=VERSION
-    #     )
 
     train_set, val_set, test_set = get_dataset_split(full_dataset_csv_path=cfg['paths']['full_dataset'], output_path=cfg['paths']['datasets_dir'])
     train_set, train_loader = get_ssl_loader(
@@ -93,31 +75,12 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
         version=VERSION)
     print(f"Dataset: {len(train_set) + len(val_set) + len(test_set)} | Train: {len(train_set)} | Val: {len(val_set)} | Test: {len(test_set)}")
 
-    # Labeled dataset for linear probe
-    # labeled_dataset, lp_train_loader, lp_val_loader = get_labeled_loaders(
-    #     data_root=cfg["paths"]["data_root"],
-    #     csv_file=cfg["paths"]["labels_csv"],
-    #     batch_size=batch_size,
-    #     transform=base_transform,
-    #     version=VERSION,
-    #     train_idx=train_idx,
-    #     val_idx=val_idx
-    # )
-
-    # print(f"Unlabeled samples: {len(unlabeled_dataset)}")
-    # print(f"Labeled samples:   {len(labeled_dataset)}")
 
 
     # -------------------------------------------------
     # Initialize model
     # -------------------------------------------------
-    print("\nInitializing SSL model...")
-
-    # model = SSLModel(
-    #     backbone_dim=cfg["model"]["backbone_dim"],
-    #     hidden_dim=cfg["model"]["hidden_dim"],
-    #     projection_dim=cfg["model"]["projection_dim"]
-    # ).to(device)
+    print(f"\nInitializing SSL model with {cfg['model']['loss']} loss ...")
 
     model = SSLResNet(
         res_net_dim=cfg["model"]["res_net_dim"],
@@ -134,7 +97,8 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
         "max_gap": cfg["training"]["max_gap"],
         "cutoff_ratio": float(cfg["training"]["cutoff_ratio"]),
         "learning_rate": lr,
-        "temperature": temperature
+        "temperature": temperature,
+        "loss": cfg["model"]["loss"]
         }
     loaders = {
         "train_loader": train_loader,
@@ -147,7 +111,7 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
         "output_path": cfg["paths"]["output_dir"],
         "augs_idx": augs_idx,
         "use_enhanced": bool(cfg["training"]["use_enhanced"]),
-        "eval_every": 5
+        "eval_every": 1
     }
     model, best_acc, best_state, history, stop_epoch = train_ssl(
         model=model,
@@ -159,14 +123,18 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
 
     training_time = time.time() - start_time
 
-    # Save checkpoint
-    ckpt_path = os.path.join(output_dir, f"ssl_model_{cfg['experiment_name']}_{VERSION}.pt")
-    save_checkpoint(model, ckpt_path)
+    if debug:
+        # Save checkpoint
+        ckpt_path = os.path.join(output_dir, f"ssl_model_{cfg['experiment_name']}_{VERSION}.pt")
+        save_checkpoint(model, ckpt_path)
 
     print("Loading best model (val_accuracy = {:.4f})".format(best_acc))
     model.load_state_dict(best_state)
-    best_model_path = os.path.join(output_dir, f"ssl_best_model_{VERSION}.pt")
-    save_checkpoint(model, best_model_path)
+    
+    if debug:
+        best_model_path = os.path.join(output_dir, f"ssl_best_model_{VERSION}.pt")
+        save_checkpoint(model, best_model_path)
+
 
     # -------------------------------------------------
     # Extract features
@@ -174,23 +142,26 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
     print("\nExtracting backbone features...")
     dataset = pd.read_csv(cfg['paths']['full_dataset'], sep=";")
     print(f"Full dataset length: {len(dataset)}")
-    dataset, full_loader = get_ssl_loader(data_root=cfg['paths']['data_root'], dataframe=dataset, batch_size=cfg['training']['batch_size'], transform=base_transform, version=VERSION, shuffle=False)
+    dataset, full_loader = get_ssl_loader(data_root=cfg['paths']['data_root'], dataframe=dataset, batch_size=batch_size, transform=base_transform, version=VERSION, shuffle=False)
     features, _, filenames = extract_backbone_features(model, full_loader, device)
+
 
     # -------------------------------------------------
     # Save results
-    # -------------------------------------------------
+    # -------------------------------------------------    
     print("\nSaving results...")
 
     # Save training history
     history_path = os.path.join(output_dir, f"ssl_history_{cfg['experiment_name']}_{VERSION}.csv")
     history.to_csv(history_path, sep=";", index=False)
     
-    # Save features
-    feat_path = os.path.join(output_dir, f"ssl_features_{cfg['experiment_name']}_{VERSION}.npy")
-    name_path = os.path.join(output_dir, f"ssl_filenames_{cfg['experiment_name']}_{VERSION}.npy")
-    np.save(feat_path, features)
-    np.save(name_path, filenames)
+    if debug:
+        # Save features
+        feat_path = os.path.join(output_dir, f"ssl_features_{cfg['experiment_name']}_{VERSION}.npy")
+        name_path = os.path.join(output_dir, f"ssl_filenames_{cfg['experiment_name']}_{VERSION}.npy")
+        np.save(feat_path, features)
+        np.save(name_path, filenames)
+
 
     # -------------------------------------------------
     # Save the predictions
@@ -205,13 +176,15 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
         "linear_pred": predictions
     })
 
+
     df_full = pd.read_csv(cfg['paths']['full_dataset'], sep=";")
     df_merged = df_full.merge(df_pred, on="filename", how="left")
-    df_merged.to_csv(f"{cfg['paths']['output_dir']}/predictions_model_{VERSION}.csv", sep=";")
-    print(f"Saved predictions CSV for clf with accuracy {lp_val_accuracy:.4f}.")
+    if debug:
+        df_merged.to_csv(f"{cfg['paths']['output_dir']}/predictions_model_{VERSION}.csv", sep=";")
+        print(f"Saved predictions CSV for clf with accuracy {lp_val_accuracy:.4f}.")
 
 
-    # -------------------------------------------------
+    # ------------------------------------- ------------
     # Summary
     # -------------------------------------------------
     print("\n========== SSL SUMMARY ==========")
@@ -220,8 +193,9 @@ def run_ssl_experiment(cfg, add_version=None, augs_idx=None, trial=None):
     print(f"Final accuracy:   {history['val_accuracy'].iloc[-1]:.4f}")
     print(f"Final loss:       {history['val_loss'].iloc[-1]:.4f}")
     print(f"Training time:    {int(training_time//3600):.2f}h {(training_time%3600)/60:.2f}min")
-    print(f"Features saved:   {feat_path}")
-    print(f"Model saved:      {ckpt_path}")
+    if debug: 
+        print(f"Features saved:   {feat_path}")
+        print(f"Model saved:      {ckpt_path}")
     print("=================================\n")
 
     return model, features, filenames, history, stop_epoch, df_merged

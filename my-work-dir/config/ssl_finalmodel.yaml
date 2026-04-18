@@ -1,22 +1,27 @@
 experiment_name: ssl_final_model
 
-experiment_version: "4.1" # 4.0 (100 epochs, patience=5)
+experiment_version: "5.0" 
 
 paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
-  labels_csv: "../../../data/upftfg26/apujols/processed/dataset_51700.csv"
+  full_dataset: "../../../data/upftfg26/apujols/datasets/dataset_51700.csv"
+  test_set: "../../../data/upftfg26/apujols/datasets/dataset_test.csv"
+  val_set: "../../../data/upftfg26/apujols/datasets/dataset_val.csv"
+  train_set: "../../../data/upftfg26/apujols/datasets/dataset_train.csv"
+  datasets_dir: "../../../data/upftfg26/apujols/datasets"
   output_dir: "logs/training/"
 
 model:
+  loss: "contrastive_loss"
   res_net_dim: 512         
-  projection_dim: 256      
+  projection_dim: 256         
 
 training:
-  train_with_all_data: False
   batch_size: 128  
-  num_epochs: 70
-  patience: 3
+  num_epochs: 100
+  patience: 5
+  learning_rate: 0.0010944665464467688    
+  temperature: 0.22663702093127897   
   cutoff_ratio: 0.001
-  learning_rate: 0.0012323565167879668    
-  temperature: 0.25537511437245963        
+  max_gap: 0.3
   use_enhanced: True

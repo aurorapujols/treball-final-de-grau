@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -84,26 +83,12 @@ class SSLProjectionHeadSimCLR(nn.Module):
     def forward(self, h):
         z = self.net(h)
         return F.normalize(z, dim=1)
-    
 
-class MLPClassifier(nn.Module):
-    def __init__(self, input_dim, hidden_dim=256, dropout=0.3):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, 2)
-        )
 
-    def forward(self, x):
-        return self.net(x)
-    
 class SCANHead(nn.Module):
     def __init__(self, input_dim, num_clusters):
         super().__init__()
-        self.classifier = nn.Linear(input_dim, num_clusters)
+        self.classifier  = nn.Linear(input_dim, num_clusters)
 
     def forward(self, x):
         return self.classifier(x)

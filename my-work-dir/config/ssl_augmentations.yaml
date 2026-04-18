@@ -13,6 +13,7 @@ paths:
   output_dir: "logs/training/"
 
 model:
+  loss: "contrastive_loss"
   res_net_dim: 512      # 512, 2048
   projection_dim: 128   # 128, 256
 

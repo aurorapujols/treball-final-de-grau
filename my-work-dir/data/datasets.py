@@ -6,39 +6,16 @@ import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
 
+from transformations.augment import ControlledAugmentGPU
+
 VERSIONS_ORIGINAL_IMAGES = ["1.", "2.", "3.", "4."]
 ENHANCED_SUFFIX = "_CROP_ENHANCED"
 DEFAULT_VERSION = "1.0"
 
-# class MyMeteorDatasetLabeled(Dataset):
-#     def __init__(self, image_dir, version=DEFAULT_VERSION, csv_file=None, transform=None):
-#         self.image_dir = image_dir
-#         self.transform = transform
-#         self.version = version
-
-#         df = pd.read_csv(csv_file, sep=";")
-
-#         # Keep only files that exist
-#         ending = "_CROP_SUMIMG" if (self.version[:2] in VERSIONS_ORIGINAL_IMAGES) else ENHANCED_SUFFIX
-#         valid_files = set(os.path.splitext(f)[0].replace(ending, "") for f in os.listdir(image_dir) if f.lower().endswith(".png"))
-#         df = df[df["filename"].isin(valid_files)]
-
-#         self.df = df.sort_values("filename").reset_index(drop=True)
-
-#     def __len__(self):
-#         return len(self.df)
-
-#     def __getitem__(self, idx):
-#         row = self.df.iloc[idx]
-#         ending = "_CROP_SUMIMG" if (self.version[:2] in VERSIONS_ORIGINAL_IMAGES) else ENHANCED_SUFFIX
-#         img_path = os.path.join(self.image_dir, row['filename'] + f"{ending}.png")
-#         img = Image.open(img_path).convert('L')
-#         label = row['class']
-
-#         if self.transform:
-#             img = self.transform(img)
-
-#         return img, label
+def get_df_from_csv(filepath, sep=";"):
+    if os.path.exists(filepath):
+        return pd.read_csv(filepath, sep=sep)
+    return None
 
 class MyMeteorDataset(Dataset):
     def __init__(self, img_folder, dataset, version=DEFAULT_VERSION, transform=None):
@@ -76,7 +53,47 @@ class MyMeteorDataset(Dataset):
         if self.transform:
             img = self.transform(img)
 
-        return img, fname, bmin, bmax, label     
+        return img, fname, bmin, bmax, label    
+
+class TwoViewDataset(Dataset):
+    def __init__(self, img_folder, dataset, version=DEFAULT_VERSION, transform=None):
+        self.folder = img_folder
+        self.transform = transform
+        self.version = version
+
+        # Sort filenames
+        ending = "_CROP_SUMIMG" # if (self.version[:2] in VERSIONS_ORIGINAL_IMAGES) else ENHANCED_SUFFIX
+        self.files = sorted([
+            f for f in dataset["filename"].tolist()
+            if os.path.isfile(os.path.join(img_folder, f + f"{ending}.png"))
+        ])
+
+        self.dataset = dataset[dataset["filename"].isin(self.files)].sort_values("filename").reset_index(drop=True)
+
+        self.augmentfn = ControlledAugmentGPU(use_enhanced=True)
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        row = self.dataset.iloc[idx]
+
+        fname = self.files[idx]
+        label = row["class"]
+
+        ending = "_CROP_SUMIMG" # if (self.version[:2] in VERSIONS_ORIGINAL_IMAGES) else ENHANCED_SUFFIX
+        img_path = os.path.join(self.folder, fname + f"{ending}.png")
+
+        img = Image.open(img_path).convert('L')
+        # img = np.array(img, dtype=np.uint8)         # GPU
+        # img = torch.from_numpy(img).unsqueeze(0)    # (1, H, W)
+
+        if self.transform:
+            img = self.transform(img)
+        x_i = self.augmentfn(img)
+        x_j = self.augmentfn(img)
+
+        return x_i, x_j, label 
 
 def split_dataset(dataset, output_path, test_frac=0.1, val_frac=0.1, seed=42):
 

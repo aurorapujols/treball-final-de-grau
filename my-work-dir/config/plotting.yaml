@@ -1,9 +1,16 @@
-experiment_name: plotting_3d_embeddings
+experiment_name: plot_results
 
 experiment_version: "1.0" 
 
 paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
-  dataset: "../../../data/upftfg26/apujols/processed/dataset_51700.csv"
-  labels_csv: "../../../data/upftfg26/apujols/processed/results.csv"
-  output_dir: "logs/"
+  full_dataset: "../../../data/upftfg26/apujols/datasets/dataset_51700.csv"
+  test_set: "../../../data/upftfg26/apujols/datasets/dataset_test.csv"
+  val_set: "../../../data/upftfg26/apujols/datasets/dataset_val.csv"
+  train_set: "../../../data/upftfg26/apujols/datasets/dataset_train.csv"
+  output_dir: "logs/plots"
+
+classifier_model_path: "../../../data/upftfg26/apujols/models/..."
+ssl_model_path: "../../../data/upftfg26/apujols/models/ssl_final_model.pt"
+filenames_path: "../../../data/upftfg26"
+batch_size: 128

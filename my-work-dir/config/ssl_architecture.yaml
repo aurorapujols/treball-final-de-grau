@@ -1,6 +1,6 @@
 experiment_name: ssl_architecture
 
-experiment_version: "3.2" # (3.1) ResNet-18 + 128-dim   (3.2) ResNet-18 + 256-dim   (3.3) ResNet-50 + 128-dim   (3.4) ResNet-50 + 256-dim
+experiment_version: "3.4" # (3.1) ResNet-18 + 128-dim   (3.2) ResNet-18 + 256-dim   (3.3) ResNet-50 + 128-dim   (3.4) ResNet-50 + 256-dim
 
 paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
@@ -12,7 +12,8 @@ paths:
   output_dir: "logs/training/"
 
 model:
-  res_net_dim: 512      # 512, 2048
+  loss: "contrastive_loss"
+  res_net_dim: 2048      # 512, 2048
   projection_dim: 256   # 128, 256
 
 training:

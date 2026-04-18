@@ -1,25 +1,30 @@
 experiment_name: ssl_hyperparameter_tuning
 
-experiment_version: "1.0"   # 1.1 with accuracy as objective
+experiment_version: "4.1"   # 4.0: val_loss | 4.1: val_accuracy
 
 paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
-  labels_csv: "../../../data/upftfg26/apujols/processed/dataset_51700.csv"
+  full_dataset: "../../../data/upftfg26/apujols/datasets/dataset_51700.csv"
+  test_set: "../../../data/upftfg26/apujols/datasets/dataset_test.csv"
+  val_set: "../../../data/upftfg26/apujols/datasets/dataset_val.csv"
+  train_set: "../../../data/upftfg26/apujols/datasets/dataset_train.csv"
+  datasets_dir: "../../../data/upftfg26/apujols/datasets"
   output_dir: "logs/training/"
 
 model:
+  loss: "contrastive_loss"
   res_net_dim: 512         # 512, 2048
   projection_dim: 256      # 128, 256
 
 training:
-  train_with_all_data: False
-  batch_size: [32, 64, 128, 256]  # to tune
-  num_epochs: 40
-  patience: 3
+  batch_size: [32, 64, 128, 256, 512]  # to tune
+  num_epochs: 20
+  patience: 5
+  learning_rate: [1e-5, 1e-2]     # to tune
+  temperature: [0.1, 0.5]        # to tune
   cutoff_ratio: 0.001
-  learning_rate: [1e-4, 1e-2]     # to tune
-  temperature: [0.05, 0.5]        # to tune
+  max_gap: 0.3
   use_enhanced: True
 
 optuna:
-  n_trials: 80                    # number of trials (with prunning on)
+  n_trials: 100                    # number of trials (with prunning on)

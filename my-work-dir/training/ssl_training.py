@@ -12,7 +12,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 
-from losses.losses import ContrastiveLoss
+from losses.losses import ContrastiveLoss, SupervisedContrastiveLoss
 from transformations.augment import ControlledAugment, ControlledAugmentGPU
 from evaluation.linear_probe import run_linear_probe
 from evaluation.metrics import StreamingMetrics
@@ -57,7 +57,7 @@ def compute_loss_gpu(device, model, loader, augmentfn, lossfn):
     model.eval()
     val_total = 0.0
     with torch.no_grad():
-        for images, fnames, bmins, bmaxs, labels in loader:
+        for images, fnames, bmins, bmaxs, labels_str in loader:
             images = images.to(device, non_blocking=True)
             bmins = bmins.to(device, non_blocking=True).float()
             bmaxs = bmaxs.to(device, non_blocking=True).float()
@@ -67,7 +67,12 @@ def compute_loss_gpu(device, model, loader, augmentfn, lossfn):
             _, z_i = model(x_i)
             _, z_j = model(x_j)
 
-            val_total += lossfn(z_i, z_j).item()
+            if isinstance(lossfn, ContrastiveLoss):
+                val_total += lossfn(z_i, z_j).item()
+            if isinstance(lossfn, SupervisedContrastiveLoss):
+                label_map = {"non-meteor": 0, "meteor": 1}
+                labels = torch.tensor([label_map[l] for l in labels_str], device=device)   # (b,) tensor with 1s and 0s for meteor and non-meteor class, respectively
+                val_total += lossfn(z_i, z_j, labels).item()
 
     ssl_val_loss = val_total / len(loader)
     return ssl_val_loss
@@ -78,26 +83,28 @@ def train_ssl(model, params, loaders, args, trial=None):
     device = args['device']
 
     optimizer = torch.optim.Adam(model.parameters(), lr=params['learning_rate'])
-    # optimizer = torch.optim.SGD(
-    #     model.parameters(),
-    #     lr=params['learning_rate'],
-    #     momentum=0.7,          # classical momentum
-    # )
+    # optimizer = torch.optim.SGD(model.parameters(), lr=params['learning_rate'], momentum=0.7, classical momentum)
     scheduler = ExponentialLR(optimizer, gamma=0.95)
-    lossfn = ContrastiveLoss(temperature=params['temperature']).to(device)
+
+    loss = params['loss']
+    lossfn = None
+    if loss == "contrastive_loss":
+        lossfn = ContrastiveLoss(temperature=params['temperature']).to(device)
+    elif loss == "supervised_contrastive_loss":
+        lossfn = SupervisedContrastiveLoss(temperature=params['temperature']).to(device)
 
     use_enhanced = args['use_enhanced']
     augs_idx = args['augs_idx']
     
-    augmentfn = ControlledAugmentGPU(augs_idx=augs_idx, use_enhanced=use_enhanced) #.to(device)
+    augmentfn = ControlledAugmentGPU(augs_idx=augs_idx, use_enhanced=use_enhanced).to(device)
 
     avg_loss = float("inf")
     patience_count = 0
     stop_epoch = params['num_epochs']
-    eval_every = 1
+    eval_every = args['eval_every']
     best_acc = -float("inf")
     best_state = None
-    debug = False
+    debug = True
 
     history = pd.DataFrame(columns=["epoch", "schedule", "val_loss", "train_loss", "val_accuracy", "train_accuracy", "uniformity", "alignment", "std", "time"])
 
@@ -110,7 +117,7 @@ def train_ssl(model, params, loaders, args, trial=None):
         # Metrics        
         metrics = StreamingMetrics(alpha=2, t=2)
 
-        for batch_idx, (images, fnames, bmins, bmaxs, labels) in enumerate(loaders['train_loader']):
+        for batch_idx, (images, fnames, bmins, bmaxs, labels_str) in enumerate(loaders['train_loader']):
             images = images.to(device, non_blocking=True)   # (B,1,128,128) in [0,1]
             bmins = bmins.to(device, non_blocking=True).float()
             bmaxs = bmaxs.to(device, non_blocking=True).float()
@@ -143,7 +150,13 @@ def train_ssl(model, params, loaders, args, trial=None):
             _, z_i = model(x_i)
             _, z_j = model(x_j)
 
-            loss = lossfn(z_i, z_j)
+            if isinstance(lossfn, ContrastiveLoss):
+                loss = lossfn(z_i, z_j)
+            elif isinstance(lossfn, SupervisedContrastiveLoss):
+                label_map = {"non-meteor": 0, "meteor": 1}
+                labels = torch.tensor([label_map[l] for l in labels_str], device=device)   # (b,) tensor with 1s and 0s for meteor and non-meteor class, respectively
+                loss = lossfn(z_i, z_j, labels)
+
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -230,7 +243,7 @@ def train_ssl(model, params, loaders, args, trial=None):
             best_state = copy.deepcopy(model.state_dict())
 
         if trial is not None:
-            trial.report(ssl_val_loss, epoch)
+            trial.report(lp_val_accuracy, epoch)
 
             if trial.should_prune():
                 raise optuna.TrialPruned()

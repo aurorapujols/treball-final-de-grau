@@ -1,10 +1,10 @@
 import torch
 import torchvision.transforms as T
 import numpy as np
-from PIL import Image
-
 import cv2
-import numpy as np
+
+from PIL import Image
+from sklearn.decomposition import PCA
 
 from config import config
 
@@ -120,3 +120,9 @@ class MeteorStretchEnhance:
         arr = np.array(img)
         out = meteor_stretch(arr, int(bmin), int(bmax))
         return Image.fromarray(out.astype(np.uint8))
+    
+def project_2d_hypersphere(Z):
+    pca = PCA(n_components=2)
+    Z_2d = pca.fit_transform(Z)
+    Z_2d_norm = Z_2d / np.linalg.norm(Z_2d, axis=1, keepdims=True)
+    return Z_2d_norm
