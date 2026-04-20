@@ -1,5 +1,7 @@
+import os
 import torch
 import joblib
+import shutil
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -37,19 +39,22 @@ def plot_model_results(cfg):
         dataframe=train_set,
         batch_size=batch_size,
         transform=transform.base_transform,
-        version=VERSION)
+        version=VERSION,
+        shuffle=False)
     val_set_l, val_loader = get_ssl_loader(
         data_root=cfg['paths']['data_root'], 
         dataframe=val_set,
         batch_size=batch_size,
         transform=transform.base_transform,
-        version=VERSION)
+        version=VERSION,
+        shuffle=False)
     test_set_l, test_loader = get_ssl_loader(
         data_root=cfg['paths']['data_root'], 
         dataframe=test_set,
         batch_size=batch_size,
         transform=transform.base_transform,
-        version=VERSION)
+        version=VERSION,
+        shuffle=False)
     print(f"Dataset: {len(train_set) + len(val_set) + len(test_set)} | Train: {len(train_set)} | Val: {len(val_set)} | Test: {len(test_set)}")
 
     _, two_view_loader = get_two_view_loader(
@@ -171,3 +176,53 @@ def plot_model_results(cfg):
         fig = plots.plot_knn_distance_kde(knn_dist, y_true, k)
         fig.savefig(f"{output_path}/knn_distance_kde_{VERSION}.png", dpi=300)
         plt.close()
+
+    # -----------------------------------------------------------------
+    # Move missclassifications in different folders to visualize them
+    # -----------------------------------------------------------------
+    results_df = val_set.copy()  # avoid modifying original
+    results_df["y_true"] = y_true
+    results_df["y_pred"] = y_pred
+
+    if hasattr(clf, "classes_"):
+        idx_meteor = np.where(clf.classes_ == 1)[0][0]
+        idx_non_meteor = np.where(clf.classes_ == 0)[0][0]
+    else:
+        idx_meteor = 1
+        idx_non_meteor = 0
+    p_meteor = y_probs[:, idx_meteor]
+    p_non_meteor = y_probs[:, idx_non_meteor]
+    results_df["meteor_prob"] = p_meteor
+    results_df["non-meteor_prob"] = p_non_meteor
+
+    results_df.to_csv(f"{output_path}/classification_results_val.csv", sep=";")
+
+    # Misclassifications
+    false_positives  = results_df[(results_df.y_true == 0) & (results_df.y_pred == 1)]
+    false_negatives  = results_df[(results_df.y_true == 1) & (results_df.y_pred == 0)]
+
+    fp_filenames = false_positives["filename"].tolist()
+    fn_filenames = false_negatives["filename"].tolist()
+
+    data_root = cfg['paths']['data_root']
+
+    def clear_folder(path):
+            if os.path.exists(path):
+                shutil.rmtree(path)   # delete folder and all contents
+            os.makedirs(path, exist_ok=True)  # recreate empty folder
+
+    dest_folder = f"{cfg['paths']['fp_dest']}_{VERSION}"
+    clear_folder(dest_folder)    
+    for filename in fp_filenames:
+        os.makedirs(dest_folder, exist_ok=True)
+        src_path = os.path.join(data_root, f"{filename}_CROP_SUMIMG.png")
+        dst_path = os.path.join(dest_folder, f"{filename}.png")
+        shutil.copy(src_path, dst_path)
+    
+    dest_folder = f"{cfg['paths']['fn_dest']}_{VERSION}"
+    clear_folder(dest_folder)    
+    for filename in fn_filenames:
+        os.makedirs(dest_folder, exist_ok=True)
+        src_path = os.path.join(data_root, f"{filename}_CROP_SUMIMG.png")
+        dst_path = os.path.join(dest_folder, f"{filename}.png")
+        shutil.copy(src_path, dst_path)

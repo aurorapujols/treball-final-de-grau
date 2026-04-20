@@ -12,13 +12,22 @@ def predict(model, X, threshold=None):
 
     y_probs = model.predict_proba(X)
 
-    if threshold is not None:
-        y_pred = (y_probs[:, 1] > threshold).astype(int)
+    # If the model is sklearn → it has classes_
+    if hasattr(model, "classes_"):
+        idx_meteor = np.where(model.classes_ == 1)[0][0]
+        p_meteor = y_probs[:, idx_meteor]
 
     else:
-        y_pred = model.predict(X)
+        # PyTorch MLP → column 1 is always P(meteor)
+        p_meteor = y_probs[:, 1]
+
+    if threshold is not None:
+        y_pred = (p_meteor > threshold).astype(int)
+    else:
+        y_pred = (p_meteor > 0.5).astype(int)
 
     return y_pred, y_probs
+
 
 def train_logreg(X_train, y_train):
     pipe = Pipeline([

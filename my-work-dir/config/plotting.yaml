@@ -1,6 +1,6 @@
 experiment_name: plot_results
 
-experiment_version: "1.0" 
+experiment_version: "1.0" # 1.0: MLP    1.1: LR
 
 paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
@@ -10,8 +10,11 @@ paths:
   val_set: "../../../data/upftfg26/apujols/datasets/dataset_val.csv"
   train_set: "../../../data/upftfg26/apujols/datasets/dataset_train.csv"
   output_dir: "logs/plots"
+  fp_dest: "../../../data/upftfg26/apujols/results/val_fp"
+  fn_dest: "../../../data/upftfg26/apujols/results/val_fn"
 
-classifier_model_path: "../../../data/upftfg26/apujols/models/mlp_model_1.1.pt"
+classifier_model_path: "../../../data/upftfg26/apujols/models/mlp_model_1.0.pt"
+# classifier_model_path: "../../../data/upftfg26/apujols/models/lr_model_1.0.pt"
 ssl_model_path: "../../../data/upftfg26/apujols/models/ssl_final_model_1.0.pt"
 filenames_path: "../../../data/upftfg26"
 batch_size: 128

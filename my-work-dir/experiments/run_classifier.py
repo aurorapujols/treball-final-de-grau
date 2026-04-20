@@ -42,10 +42,6 @@ def train_mlp(X_train, X_val, y_train, y_val, epochs=50, batch_size=64, lr=5e-5,
     # Convert numpy → torch
     X_train = torch.tensor(X_train, dtype=torch.float32)    
     X_val   = torch.tensor(X_val, dtype=torch.float32)
-
-    label_map = {"meteor": 1.0, "unknown": 0.0}
-    y_train = np.array([label_map[y] for y in y_train])
-    y_val   = np.array([label_map[y] for y in y_val])
     y_train = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
     y_val   = torch.tensor(y_val, dtype=torch.float32).unsqueeze(1)
 
@@ -177,6 +173,10 @@ def train_classifiers(cfg):
         dataloader=val_loader,
         device=device
     )
+
+    label_map = {"unknown": 0, "meteor": 1}
+    y_train = np.array([label_map[y] for y in y_train], dtype=np.int64)
+    y_val   = np.array([label_map[y] for y in y_val], dtype=np.int64)
 
 
     # ------------------------------------
