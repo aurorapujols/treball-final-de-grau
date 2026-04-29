@@ -3,6 +3,7 @@ import time
 
 # Experiment entry points
 from experiments.run_ssl import run_ssl_experiment
+from experiments.run_scan import run_scan, evaluate_scan_test
 from experiments.run_plots import plot_model_results
 from experiments.run_classifier import train_classifiers
 from config.config import load_config
@@ -17,7 +18,7 @@ def main():
         "--task",
         type=str,
         required=True,
-        choices=["ssl", "ssl_augs", "ssl_architecture", "ssl_hyptun", "ssl_final_model", "plot_results", "train_classifiers", "temp"],
+        choices=["ssl", "ssl_augs", "ssl_architecture", "ssl_hyptun", "ssl_final_model", "plot_results", "train_classifiers", "train_scan", "evaluate_scan", "temp"],
         help="Which experiment to run"
     )
 
@@ -56,6 +57,12 @@ def main():
     
     elif args.task == "train_classifiers":
         train_classifiers(cfg)
+
+    elif args.task == "train_scan":
+        run_scan(cfg)
+    
+    elif args.task == "evaluate_scan":
+        evaluate_scan_test(cfg)
 
     elif args.task == "temp":
         get_dataset_split(full_dataset_csv_path=cfg['full_dataset_path'], output_path=cfg['output_path'])

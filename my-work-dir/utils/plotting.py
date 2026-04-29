@@ -194,3 +194,40 @@ def plot_knn_distance_kde(distances, y_true, k):
 
     plt.tight_layout()
     return fig
+
+def plot_confusion_matrix_heatmap(cm, class_names, title="Confusion Matrix (Hungarian Mapped)"):
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    # Heatmap
+    im = ax.imshow(cm, cmap="Blues")
+
+    # Colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.ax.tick_params(labelsize=12)
+
+    # Ticks and labels
+    ax.set_xticks(np.arange(len(class_names)))
+    ax.set_yticks(np.arange(len(class_names)))
+    ax.set_xticklabels(class_names, fontsize=12, rotation=45, ha="right")
+    ax.set_yticklabels(class_names, fontsize=12)
+
+    # Labels
+    ax.set_xlabel("Predicted (Mapped)", fontsize=14)
+    ax.set_ylabel("Actual", fontsize=14)
+    ax.set_title(title, fontsize=16)
+
+    # Annotate each cell
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            value = cm[i, j]
+            ax.text(
+                j, i, str(value),
+                ha="center", va="center",
+                fontsize=12,
+                color="white" if value > cm.max() * 0.5 else "black"
+            )
+
+    plt.tight_layout()
+    plt.show()
+
+    return fig

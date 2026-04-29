@@ -13,7 +13,7 @@ DATA_PATH = "../../../data/upftfg26/apujols"
 DATASET_CSV = f"{DATA_PATH}/datasets/dataset_test.csv"
 RESULT_CSV = "logs/labeling/results.csv"
 EXTRACT_DIR = f"{DATA_PATH}/labeling_tool/extracted"
-N_FILES = 50
+N_FILES = 108
 
 # Maps (year, month_number) -> archive filename
 MONTH_TO_ARCHIVE = {

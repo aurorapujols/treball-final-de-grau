@@ -26,7 +26,7 @@ paths:
     percentile_stretch: "/data/upftfg26/apujols/processed/meteors_stretch"
     global_threshold: "/data/upftfg26/apujols/processed/global_threshold"
   
-  datasets: "/data/upftfg26/apujols/processed"
+  datasets: "/data/upftfg26/apujols/datasets"
 
   incoming: "/data/upftfg26/apujols/incoming"
 
@@ -38,9 +38,10 @@ archives:
     M202512: "december2025.7z"
     M202511: "november2025.7z"
     M202510: "october2025.7z"
-    M20250:  "jan-sep2025.7z"
-    M2024:   "jan-dec2024.7z"
-    M2026:   "january2026"
+    M20250: "jan-sep2025.7z"
+    M2024: "jan-dec2024.7z"
+    M202601: "january2026.7z"
+    M202602: "february2026.7z"
 
 preprocessing:
   # Masking parameters for sum-image generation
@@ -70,9 +71,9 @@ enhancement:
 
 dataset:
   currently_trained: "dataset_36164.csv"
-  not_trained: "dataset_51700.csv"
+  not_trained: "dataset_test.csv"
   last_version: "dataset_LAST.csv"
-  labeling_results: "results.csv"
+  labeling_results: "test_set_labeled.csv"
 
 
 labeling:

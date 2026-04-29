@@ -1,5 +1,6 @@
 import os
 import torch
+import random
 import pandas as pd
 import numpy as np
 
@@ -56,10 +57,11 @@ class MyMeteorDataset(Dataset):
         return img, fname, bmin, bmax, label    
 
 class TwoViewDataset(Dataset):
-    def __init__(self, img_folder, dataset, version=DEFAULT_VERSION, transform=None):
+    def __init__(self, img_folder, dataset, version=DEFAULT_VERSION, transform=None, self_labeling=False):
         self.folder = img_folder
         self.transform = transform
         self.version = version
+        self.self_labeling = self_labeling
 
         # Sort filenames
         ending = "_CROP_SUMIMG" # if (self.version[:2] in VERSIONS_ORIGINAL_IMAGES) else ENHANCED_SUFFIX
@@ -92,14 +94,20 @@ class TwoViewDataset(Dataset):
         if self.transform:
             img = self.transform(img) # Now img is [1, H, W]
 
-        # 1. Add batch dimension: [1, 1, H, W]
-        img_batch = img.unsqueeze(0)
+        # Used for SCAN
+        if self.self_labeling:
+            x_i = img # The "Clean" view for the pseudo-label
+            
+            img_batch = img.unsqueeze(0)
+            x_j = img.clone() # Augmented after in batches
+        
+        # If SCAN/SimCLR: both are independently augmented
+        else:
+            img_batch = img.unsqueeze(0)
+            x_i = self.augmentfn.one_view(img_batch, bmin, bmax).squeeze(0)
+            x_j = self.augmentfn.one_view(img_batch, bmin, bmax).squeeze(0)
 
-        # 2. Apply augmentation and then squeeze back to [1, H, W]
-        x_i = self.augmentfn.one_view(img_batch, bmin, bmax).squeeze(0)
-        x_j = self.augmentfn.one_view(img_batch, bmin, bmax).squeeze(0)
-
-        return x_i, x_j, label
+        return x_i, x_j, label, bmin, bmax
     
 class CSVImageDataset(torch.utils.data.Dataset):
     def __init__(self, df, imgs_folder, transform=None):
@@ -124,6 +132,31 @@ class CSVImageDataset(torch.utils.data.Dataset):
             img = self.transform(img)
 
         return img, label
+
+class NeighborsDataset(Dataset):
+    def __init__(self, anchor_dataset, neighbor_dataset, neighbor_indices):
+        self.anchor_dataset = anchor_dataset
+        self.neighbor_dataset = neighbor_dataset
+        self.neighbor_indices = neighbor_indices
+
+    def __len__(self):
+        return len(self.anchor_dataset)
+
+    def __getitem__(self, idx):
+        # Anchor sample
+        anchor_img, anchor_fname, anchor_bmin, anchor_bmax, _ = self.anchor_dataset[idx]
+
+        # Neighbor index refers to neighbor_dataset
+        n_idx = random.choice(self.neighbor_indices[idx])
+        neighbor_img, _, neighbor_bmin, neighbor_bmax, _ = self.neighbor_dataset[n_idx]
+
+        return {
+            'anchor': anchor_img,
+            'neighbor': neighbor_img,
+            'bmins': anchor_bmin,
+            'bmaxs': anchor_bmax,
+            'fname': anchor_fname
+        }
 
 def split_dataset(dataset, output_path, test_frac=0.1, val_frac=0.1, seed=42):
 

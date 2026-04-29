@@ -44,7 +44,7 @@ def get_two_augmentations_projection(model, dataloader, device):
     all_zi, all_zj = [], []
     
     with torch.no_grad():
-        for x_i, x_j, lbls in dataloader:
+        for x_i, x_j, _, _, _ in dataloader:
             # 2. Move inputs to the same device as the model
             x_i = x_i.to(device)
             x_j = x_j.to(device)

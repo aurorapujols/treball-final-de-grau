@@ -19,8 +19,8 @@ def get_ssl_loader(data_root, dataframe, batch_size, transform, version=None, sh
     )
     return dataset, loader
 
-def get_two_view_loader(data_root, dataframe, batch_size, transform, version=None, shuffle=True):
-    dataset = TwoViewDataset(img_folder=data_root, dataset=dataframe, version=version, transform=transform)
+def get_two_view_loader(data_root, dataframe, batch_size, transform, version=None, shuffle=True, self_labeling=False):
+    dataset = TwoViewDataset(img_folder=data_root, dataset=dataframe, version=version, transform=transform, self_labeling=self_labeling)
     loader = DataLoader(
         dataset,
         batch_size=batch_size,

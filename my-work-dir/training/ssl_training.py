@@ -12,6 +12,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 
+from models.ssl_model import SSLBackboneResNet
 from losses.losses import ContrastiveLoss, SupervisedContrastiveLoss
 from transformations.augment import ControlledAugment, ControlledAugmentGPU
 from evaluation.linear_probe import run_linear_probe
@@ -24,12 +25,21 @@ def extract_backbone_features(model, dataloader, device):
 
     with torch.no_grad():
         for batch in dataloader:
-            imgs, fnames, _, _, lbls = batch
-            imgs = imgs.to(device)
-            h, _ = model(imgs)
-            feats.append(h.cpu())
-            labels.extend(lbls)
-            filenames.extend(fnames)
+
+            if not isinstance(model, SSLBackboneResNet):
+                imgs, fnames, _, _, lbls = batch
+                imgs = imgs.to(device)
+                h, z = model(imgs)
+                feats.append(h.cpu())
+                labels.extend(lbls)
+                filenames.extend(fnames)
+            else:
+                imgs, fnames, _, _, lbls = batch
+                imgs = imgs.to(device)
+                h = model(imgs)
+                feats.append(h.cpu())
+                labels.extend(lbls)
+                filenames.extend(fnames)
 
     feats = torch.cat(feats, dim=0).numpy()
     labels = np.array(labels)

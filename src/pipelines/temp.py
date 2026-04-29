@@ -8,7 +8,7 @@ from config import config
 def temp_function():
 
     # Change here what functions to execute
-    archives.get_images_for_3d_plotting(config)
+    visualization.print_average_pixels(config)
 
 if __name__ == "__main__":
     

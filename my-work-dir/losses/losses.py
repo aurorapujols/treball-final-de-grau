@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from evaluation.metrics import uniformity, alignment
-
 class ContrastiveLoss(nn.Module):
     """
     Contrastive loss that brings embedding of positive paris together. Uses dynamic batch size to
@@ -66,19 +64,41 @@ class SupervisedContrastiveLoss(nn.Module):
 
         return loss.mean()
 
-def scan_loss(logits, nn_logits, temperature=0.1):
-    # Softmax
-    p = torch.softmax(logits / temperature, dim=1)
-    q = torch.softmax(nn_logits / temperature, dim=1)
+class SCANLoss(nn.Module):
+    """
+    SCAN Loss: Consists of a consistency loss to pull neighbors together in probability space
+    and an entropy loss to avoid cluster collapse by encouraging a uniform distribution.
+    """
+    def __init__(self, entropy_weight=2.0):
+        super().__init__()
+        self.entropy_weight = entropy_weight
 
-    # Consistency loss (KL divergence)
-    consistency = torch.mean(torch.sum(p * (torch.log(p + 1e-10) - torch.log(q + 1e-10)), dim=1))
+    def forward(self, anchors, neighbors):
+        """
+        Args:
+            anchors: Logits for anchor images [batch_size, num_clusters]
+            neighbors: Logits for neighbor images [batch_size, num_clusters]
+        Returns:
+            total_loss, consistency_loss, entropy_loss
+        """
+        # Convert logits to probabilities
+        p_i = F.softmax(anchors, dim=1)
+        p_j = F.softmax(neighbors, dim=1)
 
-    # Entropy minimization (encourage confident predictions)
-    entropy_min = -torch.mean(torch.sum(p * torch.log(p + 1e-10), dim=1))
+        # 1. Consistency Loss: dot product of probabilities (similarity in output space)
+        # We want to maximize the probability that they belong to the same class.
+        # Equivalent to -log(sum(p_i * p_j))
+        similarity = torch.sum(p_i * p_j, dim=1)
+        
+        # We use a small epsilon to avoid log(0)
+        consistency_loss = -torch.log(similarity + 1e-7).mean()
 
-    # Entropy maximization (encourage cluster diversity)
-    avg_p = torch.mean(p, dim=0)
-    entropy_max = torch.sum(avg_p * torch.log(avg_p + 1e-10))
+        # 2. Entropy Loss: Compute entropy of the mean probability distribution
+        # This encourages the model to use all clusters across the batch.
+        avg_probs = p_i.mean(dim=0)
+        entropy_loss = -torch.sum(avg_probs * torch.log(avg_probs + 1e-7))
 
-    return consistency + 0.1 * entropy_min + 0.1 * entropy_max
+        # Total Loss: Maximize entropy = Subtract it from the minimization objective
+        total_loss = consistency_loss - self.entropy_weight * entropy_loss
+
+        return total_loss, consistency_loss, entropy_loss

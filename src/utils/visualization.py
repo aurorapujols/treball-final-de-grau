@@ -50,7 +50,7 @@ def average_image(images, resize=False):
 
     avg_img = Image.fromarray(avg.astype(np.uint8))
     enhancer = ImageEnhance.Contrast(avg_img)
-    return enhancer.enhance(10.0)
+    return enhancer.enhance(15.0)
 
 def print_average_pixels(config):
 
@@ -66,12 +66,12 @@ def print_average_pixels(config):
 
         df = labeled_df
         n = 0
-
+        n_max = 50
         if label == "meteor":
-            n = 200
+            n = n_max
             df = pd.read_csv(f"{config.paths.datasets}/{config.dataset.not_trained}", sep=";")
         else:
-            n = min(count, 200) #min(v, 10)
+            n = min(count, n_max)
 
         images = get_average_images(df, label, n, config.paths.processed.sum_image, suffix_length=7)
         images_crop = get_average_images(df, label, n, config.paths.processed.original, suffix_length=12)

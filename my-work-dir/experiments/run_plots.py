@@ -41,13 +41,13 @@ def plot_model_results(cfg):
         transform=transform.base_transform,
         version=VERSION,
         shuffle=False)
-    val_set_l, val_loader = get_ssl_loader(
-        data_root=cfg['paths']['data_root'], 
-        dataframe=val_set,
-        batch_size=batch_size,
-        transform=transform.base_transform,
-        version=VERSION,
-        shuffle=False)
+    # val_set_l, val_loader = get_ssl_loader(
+    #     data_root=cfg['paths']['data_root'], 
+    #     dataframe=val_set,
+    #     batch_size=batch_size,
+    #     transform=transform.base_transform,
+    #     version=VERSION,
+    #     shuffle=False)
     test_set_l, test_loader = get_ssl_loader(
         data_root=cfg['paths']['data_root'], 
         dataframe=test_set,
@@ -59,19 +59,19 @@ def plot_model_results(cfg):
 
     _, two_view_loader = get_two_view_loader(
         data_root=cfg['paths']['data_root'], 
-        dataframe=val_set,
+        dataframe=test_set,
         batch_size=batch_size,
         transform=transform.base_transform,
         version=VERSION)
     
-    N = len(val_set)
+    N = len(test_set)
 
     # -----------------------------------------------
     # Extract features for plots on validation set
     # -----------------------------------------------
     X_backbone, X_projection, y_true = encoder.get_encoding_and_projection(
         model=ssl_model,
-        dataloader=val_loader,
+        dataloader=test_loader,
         device=device
     )
     X_projection_head_i, X_projection_head_j = encoder.get_two_augmentations_projection(
@@ -98,7 +98,7 @@ def plot_model_results(cfg):
     # VGG16 embeddings t-SNE
     if plot_cfg.get('vgg16_tsne_plot', False):
         print("\nWorking on VGG16 t-SNE plot...")
-        X, y = get_vgg16_embedded_images(cfg['paths']['data_root'], cfg['paths']['val_set'])
+        X, y = get_vgg16_embedded_images(cfg['paths']['data_root'], cfg['paths']['test_set'])
         y = np.array([label_map[b] for b in y], dtype=np.int64)
         tsne = TSNE(n_components=3, perplexity=30, learning_rate='auto', init='pca')
         Z = tsne.fit_transform(X) # to avoid distortions
@@ -180,7 +180,7 @@ def plot_model_results(cfg):
     # -----------------------------------------------------------------
     # Move missclassifications in different folders to visualize them
     # -----------------------------------------------------------------
-    results_df = val_set.copy()  # avoid modifying original
+    results_df = test_set.copy()  # avoid modifying original
     results_df["y_true"] = y_true
     results_df["y_pred"] = y_pred
 
