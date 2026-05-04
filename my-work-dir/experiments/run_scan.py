@@ -87,6 +87,15 @@ def run_scan(cfg):
 
     print(f"\nLoading datasets...")
     train_set, val_set, test_set = get_dataset_split(full_dataset_csv_path=cfg['paths']['full_dataset'], output_path=cfg['paths']['datasets_dir'])
+    
+    if bool(scan_cfg['use_only_non_meteors']):
+        train_set = train_set[train_set["class"] != "meteor"].reset_index(drop=True)
+        val_set   = val_set[val_set["class"]   != "meteor"].reset_index(drop=True)
+        test_set  = test_set[test_set["class"]  != "meteor"].reset_index(drop=True)
+
+        print("Removed all meteor samples from train/val/test.")
+        print(f"New sizes → Train: {len(train_set)}, Val: {len(val_set)}, Test: {len(test_set)}")
+    
     train_dataset, train_loader = get_ssl_loader(
         data_root=cfg['paths']['data_root'], 
         dataframe=train_set,
@@ -210,10 +219,31 @@ def run_scan(cfg):
 
     # 2. Optimizer for both Backbone and Head
     print(f"\tStarted Self-Labeling Training")
-    optimizer_sl = torch.optim.SGD(model_train_stage2.parameters(), lr=float(scan_cfg['lr_selflabeling']), momentum=0.9)
+    optimizer_sl = torch.optim.SGD(
+        model_train_stage2.parameters(),
+        lr=float(scan_cfg['lr_selflabeling']),
+        momentum=0.9
+    )
 
     sl_history = []
+
+    # -----------------------------
+    # EARLY STOPPING SETUP
+    # -----------------------------
+    best_val_loss = float('inf')
+    patience = int(scan_cfg.get("sl_patience", 5))   # configurable
+    patience_counter = 0
+
+    best_state = {
+        "backbone": None,
+        "cluster_head": None
+    }
+
+    # -----------------------------
+    # EPOCH LOOP
+    # -----------------------------
     for epoch in range(int(scan_cfg['sl_epochs'])):
+
         metrics = train_selflabel(
             model_train_stage2,
             train_sl_loader,
@@ -226,23 +256,97 @@ def run_scan(cfg):
 
         sl_history.append(metrics)
 
-        print(f"Epoch {epoch+1} | "
+        print(
+            f"Epoch {epoch+1} | "
             f"Train Loss: {metrics['train_loss']:.4f} | "
             f"Train Sel: {metrics['train_selection_rate']:.3f} | "
             f"Val Loss: {metrics['val_loss']:.4f} | "
-            f"Val Sel: {metrics['val_selection_rate']:.3f}")
+            f"Val Sel: {metrics['val_selection_rate']:.3f}"
+        )
 
-    # 3. (Optional) Save to CSV every epoch so you don't lose progress if it crashes
+        # -----------------------------
+        # EARLY STOPPING CHECK
+        # -----------------------------
+        val_loss = metrics["val_loss"]
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+
+            # Save best weights
+            best_state["backbone"] = {
+                k: v.cpu().clone()
+                for k, v in model_train_stage2.backbone.state_dict().items()
+            }
+            best_state["cluster_head"] = {
+                k: v.cpu().clone()
+                for k, v in model_train_stage2.cluster_head.state_dict().items()
+            }
+
+        else:
+            patience_counter += 1
+
+        if patience_counter >= patience:
+            print(f"Early stopping triggered at epoch {epoch+1}")
+            break
+
+    # -----------------------------
+    # RESTORE BEST MODEL
+    # -----------------------------
+    model_train_stage2.backbone.load_state_dict(best_state["backbone"])
+    model_train_stage2.cluster_head.load_state_dict(best_state["cluster_head"])
+
+    # -----------------------------
+    # SAVE HISTORY + MODEL
+    # -----------------------------
     sl_history_df = pd.DataFrame(sl_history)
-    sl_history_df.to_csv(f"{cfg['paths']['output_dir']}/self_labeling_history.csv", sep=";", index=False)
+    sl_history_df.to_csv(
+        f"{cfg['paths']['output_dir']}/self_labeling_history.csv",
+        sep=";",
+        index=False
+    )
+
     scan_model_sl_path = f"{cfg['paths']['output_dir']}/scan_model_stage3_selflabel.pth"
     torch.save({
-        "backbone": clustering_model.backbone.state_dict(),
-        "cluster_head": clustering_model.cluster_head.state_dict(),
+        "backbone": model_train_stage2.backbone.state_dict(),
+        "cluster_head": model_train_stage2.cluster_head.state_dict(),
         "config": scan_cfg
     }, scan_model_sl_path)
 
     print(f"Saved SCAN Stage 3 (self-labeling) model to {scan_model_sl_path}")
+        
+
+    if (scan_cfg['evaluate_after']):
+        print(f"\nEvaluating the model...")
+        evaluate_scan_test(cfg)
+
+def compute_cluster_purity(y_true, y_pred, class_names, n_clusters):
+    """
+    Returns a dictionary:
+        cluster_id → {class_name: percentage}
+    """
+    purity = {}
+
+    for c in range(n_clusters):
+        mask = (y_pred == c)
+        total = mask.sum()
+
+        if total == 0:
+            purity[c] = {cls: 0.0 for cls in class_names}
+            continue
+
+        labels, counts = np.unique(y_true[mask], return_counts=True)
+        percentages = {class_names[l]: (counts[i] / total) * 100
+                       for i, l in enumerate(labels)}
+
+        # Fill missing classes with 0%
+        for cls in class_names:
+            if cls not in percentages:
+                percentages[cls] = 0.0
+
+        purity[c] = percentages
+
+    return purity
 
 def get_cluster_prototypes(model, dataloader, device, head_idx=0):
     model.eval()
@@ -336,6 +440,26 @@ def get_cluster_mapping_flexible(y_true, y_pred, n_clusters, n_classes):
     for cluster_idx in range(n_clusters):
         if cluster_idx not in mapping:
             mapping[cluster_idx] = int(np.argmax(contingency[cluster_idx]))
+
+    return mapping
+
+def get_cluster_mapping_majority(y_true, y_pred, n_clusters, n_classes):
+    """
+    Assign each cluster to the class with the highest count inside that cluster.
+    Supports n_clusters >= n_classes.
+    """
+    mapping = {}
+
+    for c in range(n_clusters):
+        mask = (y_pred == c)
+        if mask.sum() == 0:
+            # empty cluster → assign to a dummy class or the most common class overall
+            mapping[c] = -1
+            continue
+
+        labels, counts = np.unique(y_true[mask], return_counts=True)
+        best_label = labels[np.argmax(counts)]
+        mapping[c] = int(best_label)
 
     return mapping
 
@@ -448,7 +572,6 @@ def plot_cluster_similarity_matrix(model, dataloader, device, head_idx=0, figsiz
     plt.show()
 
     return sim_sorted, clusters_sorted
-
 
 def evaluate_scan(cfg):
     """
@@ -601,6 +724,12 @@ def evaluate_scan_test(cfg):
     # ----------------------------------------------------------
     test_set_labeled = pd.read_csv(cfg['paths']['test_set_labeled'], sep=";")
 
+    if bool(scan_cfg['use_only_non_meteors']):
+        test_set_labeled  = test_set_labeled[test_set_labeled["class"]  != "meteor"].reset_index(drop=True)
+
+        print("Removed all meteor samples from train/val/test.")
+        print(f"New sizes → Test: {len(test_set_labeled)}")
+    
     test_dataset, test_loader = get_ssl_loader(
         data_root=cfg["paths"]["data_root"],
         dataframe=test_set_labeled,
@@ -611,8 +740,14 @@ def evaluate_scan_test(cfg):
     )
 
     class_names = sorted(test_set_labeled["class"].unique().tolist())
+    label_to_idx = {cls: i for i, cls in enumerate(sorted(class_names))}
     n_classes   = len(class_names)
     n_clusters  = int(scan_cfg["n_clusters"])
+
+    print(f"Confirming labels and idx:")
+    print(label_to_idx)
+    print(class_names)
+
 
     # ----------------------------------------------------------
     # 2. Cluster prototypes
@@ -674,10 +809,16 @@ def evaluate_scan_test(cfg):
     y_true = np.array(all_labels)
 
     # ----------------------------------------------------------
+    # Output Purity
+    # ----------------------------------------------------------
+    purity = compute_cluster_purity(y_true, y_pred, class_names, n_clusters)
+    print("Purity:", purity)
+
+    # ----------------------------------------------------------
     # 5. Flexible Hungarian mapping
     # ----------------------------------------------------------
     print("Computing cluster→label mapping (flexible, n_clusters >= n_classes)...")
-    mapping = get_cluster_mapping_flexible(y_true, y_pred, n_clusters, n_classes)
+    mapping = get_cluster_mapping_majority(y_true, y_pred, n_clusters, n_classes)
     print("  Cluster → Label mapping:")
     for cluster_idx, label_idx in sorted(mapping.items()):
         print(f"    Cluster {cluster_idx:2d} → {class_names[label_idx]}")
@@ -726,3 +867,218 @@ def evaluate_scan_test(cfg):
         "sim_matrix_sorted": sim_sorted,
         "clusters_sorted":   clusters_sorted,
     }
+
+
+
+# ----------------------------------------------------
+# NEW
+# ----------------------------------------------------
+
+def extract_embeddings(model, dataloader, device, label_map):
+    model.eval()
+    all_feats = []
+    all_labels = []
+
+    with torch.no_grad():
+        for batch in dataloader:
+            imgs, _, _, _, labels = batch
+            imgs = imgs.to(device)
+
+            feats = model.backbone(imgs)
+            all_feats.append(feats.cpu().numpy())
+            if label_map is not None:
+                all_labels.extend([label_map[l] for l in labels])
+            else:
+                all_labels.extend(labels)
+
+    all_feats = np.concatenate(all_feats, axis=0).astype("float32")
+    all_feats = all_feats.reshape(all_feats.shape[0], -1).astype("float32")
+
+    faiss.normalize_L2(all_feats)
+    return all_feats, np.array(all_labels)
+
+def run_kmeans_gpu(embeddings, n_clusters):
+    d = embeddings.shape[1]
+
+    # GPU resources
+    res = faiss.StandardGpuResources()
+
+    # Configure KMeans
+    kmeans = faiss.Kmeans(
+        d=d,
+        k=n_clusters,
+        niter=50,
+        verbose=True,
+        gpu=True,
+        max_points_per_centroid=10000
+    )
+
+    # Train KMeans
+    kmeans.train(embeddings)
+
+    # Assign clusters
+    distances, assignments = kmeans.index.search(embeddings, 1)
+    return assignments.reshape(-1), kmeans
+
+def compute_kmeans_purity(assignments, y_true, class_names, n_clusters):
+    purity = {}
+
+    for c in range(n_clusters):
+        mask = (assignments == c)
+        total = mask.sum()
+
+        if total == 0:
+            purity[c] = {cls: 0.0 for cls in class_names}
+            continue
+
+        labels, counts = np.unique(y_true[mask], return_counts=True)
+        percentages = {class_names[l]: (counts[i] / total) * 100
+                       for i, l in enumerate(labels)}
+
+        # Fill missing classes
+        for cls in class_names:
+            if cls not in percentages:
+                percentages[cls] = 0.0
+
+        purity[c] = percentages
+
+    return purity
+
+def plot_purity_heatmap(purity, save_path, sort_by="dominant", target_class=None, figsize=(14, 8)):
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # --- Extract class names (consistent order)
+    class_names = sorted(list(next(iter(purity.values())).keys()))
+    n_clusters = len(purity)
+    n_classes = len(class_names)
+
+    # --- Build matrix
+    matrix = np.zeros((n_clusters, n_classes))
+    for c in range(n_clusters):
+        for j, cls in enumerate(class_names):
+            matrix[c, j] = purity[c].get(cls, 0.0)
+
+    # --- Sorting
+    if sort_by == "dominant":
+        dominant_class = matrix.argmax(axis=1)
+        sorted_idx = np.argsort(dominant_class)
+
+    elif sort_by == "class" and target_class is not None:
+        if target_class not in class_names:
+            raise ValueError(f"{target_class} not found in class_names")
+        target_idx = class_names.index(target_class)
+        sorted_idx = np.argsort(-matrix[:, target_idx])
+
+    else:
+        sorted_idx = np.arange(n_clusters)
+
+    matrix = matrix[sorted_idx]
+
+    # --- Plot
+    plt.figure(figsize=figsize)
+    im = plt.imshow(matrix, aspect='auto', vmin=0, vmax=100)
+
+    plt.colorbar(im, label="Percentage (%)")
+
+    plt.xticks(range(n_classes), class_names, rotation=90)
+    plt.yticks(range(n_clusters), [f"C{idx}" for idx in sorted_idx])
+
+    plt.xlabel("Class")
+    plt.ylabel("Cluster")
+    plt.title("Cluster Purity Heatmap")
+
+    plt.savefig(f"{save_path}/purity_heatmap.png", dpi=300)
+
+    return matrix, class_names, sorted_idx
+
+def kmeans_train_val_pipeline(model, train_loader, test_loader, device, class_names, save_path, n_clusters=20):
+    
+    model.to(device)
+    model.eval()
+    
+    label_map = {"meteor": 1, "unknown": 0}
+    print(label_map)
+    print("Extracting TRAIN embeddings...")
+    train_emb, _ = extract_embeddings(model, train_loader, device, label_map)
+    print(train_emb.shape)
+
+    print("Training GPU K-Means on TRAIN...")
+    _, kmeans = run_kmeans_gpu(train_emb, n_clusters)
+
+    label_map = {name: i for i, name in enumerate(class_names)}
+    print(label_map)
+    print("Extracting TEST embeddings...")
+    test_emb, test_labels = extract_embeddings(model, test_loader, device, label_map)
+
+    print("Assigning TEST samples to clusters...")
+    distances, test_assignments = kmeans.index.search(test_emb, 1)
+    test_assignments = test_assignments.reshape(-1)
+
+    print("Computing purity on TEST...")
+    purity = compute_kmeans_purity(test_assignments, test_labels, class_names, n_clusters)
+
+    plot_purity_heatmap(purity, save_path)
+
+    return test_assignments, purity
+
+def run_clustering(cfg):
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.backends.cudnn.benchmark = True
+
+    scan_cfg = cfg['scan']
+    VERSION = cfg['experiment_version']
+    batch_size = scan_cfg['loader_batch_size']
+    
+    print("Starting the SCAN algorithm training.")
+
+    print(f"\nLoading datasets...")
+    train_set, val_set, _ = get_dataset_split(full_dataset_csv_path=cfg['paths']['full_dataset'], output_path=cfg['paths']['datasets_dir'])
+    
+    test_set_labeled = pd.read_csv(cfg['paths']['test_set_labeled'], sep=";")
+
+    if bool(scan_cfg['use_only_non_meteors']):
+        train_set = train_set[train_set["class"] != "meteor"].reset_index(drop=True)
+        test_set_labeled  = test_set_labeled[test_set_labeled["class"]  != "meteor"].reset_index(drop=True)
+
+        print("Removed all meteor samples from train/val/test.")
+        print(f"New sizes → Train: {len(train_set)}, Test: {len(test_set_labeled)}")
+
+    print(f"Dataset: {len(train_set) + len(val_set) + len(test_set_labeled)} | Train: {len(train_set)} | Val: {len(val_set)} | Test: {len(test_set_labeled)}")
+    
+    train_dataset, train_loader = get_ssl_loader(
+        data_root=cfg['paths']['data_root'], 
+        dataframe=train_set,
+        batch_size=batch_size,
+        transform=base_transform,
+        version=VERSION,
+        shuffle=False)
+
+    test_dataset, test_loader = get_ssl_loader(
+        data_root=cfg['paths']['data_root'], 
+        dataframe=test_set_labeled,
+        batch_size=batch_size,
+        transform=base_transform,
+        version=VERSION,
+        shuffle=False)
+
+    ssl_model = encoder.get_model(scan_cfg['ssl_model_path'])
+    ssl_backbone = ssl_model.encoder
+
+    class_names = sorted(test_set_labeled["class"].unique().tolist())
+    label_to_idx = {cls: i for i, cls in enumerate(sorted(class_names))}
+    n_clusters  = int(scan_cfg["n_clusters"])
+
+    assignments, purity = kmeans_train_val_pipeline(
+        model=ssl_backbone,     # or SCAN backbone
+        train_loader=train_loader,
+        test_loader=test_loader,
+        device=device,
+        class_names=class_names,
+        save_path=cfg['paths']['output_dir'],
+        n_clusters=20
+    )
+
+    print("Assignments:", assignments)
+    print("Purity", purity)

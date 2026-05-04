@@ -19,7 +19,7 @@ def train_scan(model, params, args):
 
     history = []   # <-- clean epoch-level history
     best_val_loss = float('inf')
-    patience = 5
+    patience = 3
     patience_counter = 0
 
     for epoch in range(num_epochs):

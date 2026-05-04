@@ -3,7 +3,7 @@ import time
 
 # Experiment entry points
 from experiments.run_ssl import run_ssl_experiment
-from experiments.run_scan import run_scan, evaluate_scan_test
+from experiments.run_scan import run_scan, evaluate_scan_test, run_clustering
 from experiments.run_plots import plot_model_results
 from experiments.run_classifier import train_classifiers
 from config.config import load_config
@@ -59,7 +59,8 @@ def main():
         train_classifiers(cfg)
 
     elif args.task == "train_scan":
-        run_scan(cfg)
+        # run_scan(cfg)
+        run_clustering(cfg)
     
     elif args.task == "evaluate_scan":
         evaluate_scan_test(cfg)

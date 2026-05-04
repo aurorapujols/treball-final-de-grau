@@ -1,6 +1,7 @@
 experiment_name: scan_training
 
-experiment_version: "1.0" # evaluate: 1.0-stage3
+experiment_version: "1.0"     # training: 1.0-all     1.1-only_non_meteors
+                              # evaluate: 1.0-stage3
 
 paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
@@ -13,21 +14,22 @@ paths:
   output_dir: "logs/training"
   train_features: "../../../data/upftfg26/apujols/results/features/ssl_features_ssl_final_model_5.0.npy"
   train_filenames: "../../../data/upftfg26/apujols/results/filenames/ssl_filenames_ssl_final_model_5.0.npy"
-  scan_checkpoint: 
 
 scan:
-  epochs: 50
-  sl_epochs: 50
+  epochs: 3
+  sl_epochs: 3
   loader_batch_size: 64
   ssl_model_path: "../../../data/upftfg26/apujols/models/ssl_final_model_1.0.pt"
   backbone_dim: 512
   n_clusters: 20
   n_heads: 5
-  n_neighbours: 20
+  n_neighbours: 50
   entropy_weight: 2.0
   lr_scan: 1e-4
   lr_selflabeling: 1e-5
-  prototype_threshold: 0.75
+  prototype_threshold: 0.80
+  use_only_non_meteors: False
+  evaluate_after: False
 
 models: 
   scan_stage2: "../../../data/upftfg26/apujols/models/scan_model_stage2.pth"
