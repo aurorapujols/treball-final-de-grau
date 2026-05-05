@@ -27,6 +27,9 @@ def plot_model_results(cfg):
     output_path = cfg['paths']['output_dir']
     batch_size = cfg['batch_size']
     VERSION = cfg['experiment_version']
+
+    use_labeled_dataset = cfg["use_labeled_dataset"]   # True or False
+
     
     # ----------------------------------
     # Load model and loaders
@@ -81,16 +84,23 @@ def plot_model_results(cfg):
     )    
     X_backbone_norm = X_backbone / np.linalg.norm(X_backbone, axis=1, keepdims=True)
 
-    label_map = {"unknown": 0, "meteor": 1}
-    y_true = np.array([label_map[b] for b in y_true])
+    if use_labeled_dataset:
+        unique_classes = sorted(list(set(y_true)))
+        label_map = {cls: i for i, cls in enumerate(unique_classes)}
+    else:
+        label_map = {"unknown": 0, "meteor": 1}
+    y_true = np.array([label_map[b] for b in y_true], dtype=np.int64)
 
     # -------------------------------------------
     # Obtain classification results
     # -------------------------------------------
     # Get classifier
-    clf = joblib.load(cfg['classifier_model_path'])
-    y_pred, y_probs = classifiers.predict(clf, X_backbone, threshold=0.5)
-
+    if not use_labeled_dataset:
+        clf = joblib.load(cfg['classifier_model_path'])
+        y_pred, y_probs = classifiers.predict(clf, X_backbone, threshold=0.5)
+    else:
+        y_pred = None
+        y_probs = None
 
     # -------------------------------------------
     # Plots
@@ -136,12 +146,14 @@ def plot_model_results(cfg):
     if plot_cfg.get('tsne_plot', False):
         print("\nWorking on t-SNE plot...")
         tsne = TSNE(n_components=3, perplexity=30, learning_rate='auto')
-        Z = tsne.fit_transform(X_backbone_norm) # to avoid distortions
-        fig = plots.plot_tsne_3d(Z, labels=y_true)
+        Z = tsne.fit_transform(X_backbone_norm)
+        colors = None
+        fig = plots.plot_tsne_3d_labeled_set(Z, labels=y_true, colors=colors)
         fig.savefig(f"{output_path}/tsne_3d_{VERSION}.png", dpi=300, bbox_inches='tight')
-        plt.close()
+        plt.close()         
 
-    # Alignment and Uniformity Diagnostic with projection head embeddings
+
+    # Alignment Diagnostic with projection head embeddings
     if plot_cfg.get('alignment_plot', False):
         print("\nWorking on alignment plot...")
         distances = encoder.compute_augmentations_distance(X_projection_head_i, X_projection_head_j)
@@ -149,10 +161,18 @@ def plot_model_results(cfg):
         fig.savefig(f"{output_path}/alignment_distribution_{VERSION}.png", dpi=300, bbox_inches='tight')
         plt.close()
 
-    # Compute angles, and KDE
+    # Compute angles, and KDE for Uniformity Diagnostic
     if plot_cfg.get('uniformity_plot', False):
         print("\nWorking on uniformity plot...")
-        X_proj_2d = transform.project_2d_hypersphere(X_projection)
+        X_proj_2d, var_ratio = transform.project_2d_hypersphere(X_projection)
+
+        x = torch.tensor(X_projection, dtype=torch.float32).to(device)
+        sq_pdist = torch.pdist(x, p=2).pow(2)
+        uniformity = (sq_pdist.mul(-2).exp().mean().log().item())
+
+        print(f"Fraction of variance explained by the two PCA components:    PC1 -> {var_ratio[0]} | PC2 -> {var_ratio[1]}.")
+        print(f"Uniformity on Test Set: {uniformity:.4f}")
+
         x, y = X_proj_2d[:, 0], X_proj_2d[:,1]
         angles = np.arctan2(y, x)
 

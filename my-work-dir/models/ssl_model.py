@@ -15,6 +15,7 @@ def get_model(filepath):
     return model
 
 def get_encoding_and_projection(model, dataloader, device):
+    model.to(device)
     model.eval()
 
     H = []
@@ -23,6 +24,7 @@ def get_encoding_and_projection(model, dataloader, device):
 
     with torch.no_grad():
         for imgs, _, _, _, lbls in dataloader:
+            imgs = imgs.to(device)
             h, z = model.encode_and_project(imgs)
 
             H.append(h.cpu().numpy())

@@ -124,5 +124,11 @@ class MeteorStretchEnhance:
 def project_2d_hypersphere(Z):
     pca = PCA(n_components=2)
     Z_2d = pca.fit_transform(Z)
+
+    # Normalize to unit circle
     Z_2d_norm = Z_2d / np.linalg.norm(Z_2d, axis=1, keepdims=True)
-    return Z_2d_norm
+
+    # Explained variance of PC1 and PC2
+    var_ratio = pca.explained_variance_ratio_
+
+    return Z_2d_norm, var_ratio

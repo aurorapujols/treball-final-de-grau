@@ -101,6 +101,56 @@ def plot_tsne_3d(Z, labels):
     plt.tight_layout()
     return fig
 
+def plot_tsne_3d_labeled_set(Z, labels, colors=None):
+
+    fig = plt.figure(figsize=(8, 6))
+    ax = fig.add_subplot(111, projection='3d')
+
+    unique_classes = np.unique(labels)
+
+    # If no color map was provided, build one automatically
+    if colors is None:
+        if len(unique_classes) == 2:
+            # Binary dataset
+            colors = {
+                unique_classes[0]: "#4B0082",   # non-meteor
+                unique_classes[1]: "#FFD700"    # meteor
+            }
+        else:
+            # Multi-class dataset
+            cmap = plt.cm.get_cmap("tab20", len(unique_classes))
+            colors = {cls: cmap(i) for i, cls in enumerate(unique_classes)}
+
+    # Scatter each class separately
+    for cls in unique_classes:
+        idx = labels == cls
+        ax.scatter(
+            Z[idx, 0], Z[idx, 1], Z[idx, 2],
+            c=[colors[cls]],
+            s=8,
+            alpha=0.8,
+            label=str(cls)
+        )
+
+    # Legend
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='w',
+               label=str(cls),
+               markerfacecolor=colors[cls],
+               markersize=8)
+        for cls in unique_classes
+    ]
+    ax.legend(handles=legend_elements, title="Classes")
+
+    ax.set_title("3D t-SNE Embeddings")
+    ax.set_xlabel("Dim 1")
+    ax.set_ylabel("Dim 2")
+    ax.set_zlabel("Dim 3")
+
+    plt.tight_layout()
+    return fig
+
+
 def plot_roc_curve(fpr, tpr, roc_auc):
 
     plt.figure(figsize=(6, 5))
@@ -195,7 +245,7 @@ def plot_knn_distance_kde(distances, y_true, k):
     plt.tight_layout()
     return fig
 
-def plot_confusion_matrix_heatmap(cm, class_names, title="Confusion Matrix (Hungarian Mapped)"):
+def plot_confusion_matrix_heatmap(cm, class_names, title="Confusion Matrix"):
     fig, ax = plt.subplots(figsize=(10, 8))
 
     # Heatmap

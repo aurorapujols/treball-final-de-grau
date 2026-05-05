@@ -9,6 +9,7 @@ from experiments.run_classifier import train_classifiers
 from config.config import load_config
 from training.hyperparameter_tunning.optuna_ssl import run_ssl_optuna
 from data.datasets import get_dataset_split
+from experiments.run_kmeans_search import run_k_search
 
 def main():
     
@@ -18,7 +19,7 @@ def main():
         "--task",
         type=str,
         required=True,
-        choices=["ssl", "ssl_augs", "ssl_architecture", "ssl_hyptun", "ssl_final_model", "plot_results", "train_classifiers", "train_scan", "evaluate_scan", "temp"],
+        choices=["ssl", "ssl_augs", "ssl_architecture", "ssl_hyptun", "ssl_final_model", "plot_results", "train_classifiers", "clustering", "evaluate_scan", "temp"],
         help="Which experiment to run"
     )
 
@@ -58,9 +59,10 @@ def main():
     elif args.task == "train_classifiers":
         train_classifiers(cfg)
 
-    elif args.task == "train_scan":
+    elif args.task == "clustering":
         # run_scan(cfg)
-        run_clustering(cfg)
+        # run_clustering(cfg)
+        run_k_search(cfg)
     
     elif args.task == "evaluate_scan":
         evaluate_scan_test(cfg)
