@@ -47,7 +47,6 @@ def train_scan_head(X, knn_indices, init_labels, num_clusters, device="cuda", ep
 
     return model
 
-
 def predict_scan_clusters(model, X, device="cuda"):
     """Simplified self-labeling step from SCAN"""
     model.eval()

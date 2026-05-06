@@ -36,7 +36,7 @@ ssl_model_path: "../../../data/upftfg26/apujols/models/ssl_final_model_1.0.pt"
 batch_size: 128
 k_search:
   k_min: 2
-  k_max: 30
+  k_max: 25
   n_init: 20
   use_gmm: false   # set true if you want BIC/AIC from GMM too
 
