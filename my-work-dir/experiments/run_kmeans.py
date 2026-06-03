@@ -1,3 +1,7 @@
+import os
+import json
+import joblib
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -48,12 +52,18 @@ def extract_embeddings(cfg):
 
     test_set_labeled = pd.read_csv(cfg["paths"]["test_set_labeled"], sep=";")
 
-    # if cfg.get("use_only_non_meteors", False):
-    #     train_set        = train_set[train_set["class"] != "meteor"].reset_index(drop=True)
-    #     test_set_labeled = test_set_labeled[test_set_labeled["class"] != "meteor"].reset_index(drop=True)
-    #     print("Removed all meteor samples from train/test.")
+    if cfg.get("use_only_non_meteors", False):
+        train_set        = train_set[train_set["class"] != "meteor"].reset_index(drop=True)
+        test_set_labeled = test_set_labeled[test_set_labeled["class"] != "meteor"].reset_index(drop=True)
+        print("Removed all meteor samples from train/test.")
 
-    print(f"Train: {len(train_set)} | Test: {len(test_set_labeled)}")
+    sample_fname = train_set["filename"].iloc[0]
+    sample_path  = os.path.join(cfg["paths"]["data_root"], sample_fname + "_CROP_SUMIMG.png")
+    print(f"Sample filename from CSV : {sample_fname}")
+    print(f"Full path checked        : {sample_path}")
+    print(f"File exists              : {os.path.isfile(sample_path)}")
+
+    print(f"Train: {len(train_set)} | Test (labeled): {len(test_set_labeled)}")
 
     _, train_loader = get_ssl_loader(
         data_root=cfg["paths"]["data_root"],
@@ -79,6 +89,8 @@ def extract_embeddings(cfg):
     X_test, _, y_test_raw = encoder.get_encoding_and_projection(
         model=ssl_model, dataloader=test_loader, device=device
     )
+
+    print(f"X_train.size = {len(X_train)} | X_test.size = {len(X_test)}")
 
     # Binary labels for train (used to filter non-meteors)
     y_train_bin = np.array(
@@ -154,6 +166,7 @@ def search_k(X, k_range=range(2, 31), n_init=20, random_state=42, use_gmm=False)
 # ----------------------------------------------------------------
 
 def plot_k_search(results, title_suffix="", save_path=None, use_gmm=False):
+    
     k       = results["k"]
     sil     = results["silhouette"]
     db      = results["davies_bouldin"]
@@ -363,7 +376,7 @@ def generate_purity_heatmaps(X_train, X_test, fine_labels_test, label_map,
 
 
 # ----------------------------------------------------------------
-# Entry point — called from main.py
+# Entry point - called from main.py
 # ----------------------------------------------------------------
 
 def run_k_search(cfg):
@@ -379,7 +392,7 @@ def run_k_search(cfg):
     sil_ks      = cfg.get("k_search", {}).get("sil_diagram_ks", [5, 9, 15, 20])
 
     # ----------------------------------------------------------------
-    # 1. Extract embeddings — train+val for fitting, test for purity
+    # 1. Extract embeddings - train+val for fitting, test for purity
     # ----------------------------------------------------------------
     print("Extracting embeddings ...")
     X_train, y_train_bin, X_test, y_test_num, label_map = extract_embeddings(cfg)
@@ -445,3 +458,111 @@ def run_k_search(cfg):
     )
 
     return results_all, results_nm
+
+# ---------------------------------------------------------------
+# Final clustering and predictions per cluster
+# ---------------------------------------------------------------
+
+def run_k_means(cfg):
+
+    output_path = cfg["paths"]["output_dir"]
+    k           = cfg["k_means"]["k"]
+    n_init      = cfg["k_means"]["n_init"]
+    random_state = cfg["k_means"]["random_state"]
+
+    os.makedirs(output_path, exist_ok=True)
+
+    # ----------------------------------------------------------------
+    # 1. Extract embeddings
+    # ----------------------------------------------------------------
+    print("Extracting embeddings ...")
+    X_train, y_train_bin, X_test, y_test_num, label_map = extract_embeddings(cfg)
+
+    # ----------------------------------------------------------------
+    # 2. Fit KMeans on full train set
+    # ----------------------------------------------------------------
+    print(f"\nFitting KMeans with K={k} on all train embeddings (N={len(X_train)}) ...")
+    km = KMeans(n_clusters=k, n_init=n_init, random_state=random_state)
+    km.fit(X_train)
+
+    # ----------------------------------------------------------------
+    # 3. Save the model
+    # ----------------------------------------------------------------
+    model_path = os.path.join(output_path, f"kmeans_k{k}.joblib")
+    joblib.dump(km, model_path)
+    print(f"Model saved → {model_path}")
+
+    # ----------------------------------------------------------------
+    # 4. Assign test set to clusters and compute per-cluster label %
+    # ----------------------------------------------------------------
+    cluster_labels = km.predict(X_test)
+    inv_map        = {v: k_str for k_str, v in label_map.items()}
+
+    unique_clusters = np.unique(cluster_labels)
+    unique_classes  = np.unique(y_test_num)
+
+    cluster_profiles = {}   # {cluster_id: {label_str: pct, ..., "n_samples": int}}
+    for c in unique_clusters:
+        mask  = cluster_labels == c
+        total = int(mask.sum())
+        profile = {"n_samples": total}
+        for cls_int in unique_classes:
+            cls_str = inv_map[cls_int]
+            pct     = float((y_test_num[mask] == cls_int).sum()) / total * 100
+            profile[cls_str] = round(pct, 2)
+        # Dominant label = inference label for new points assigned to this cluster
+        profile["dominant_label"] = max(
+            (cls for cls in profile if cls != "n_samples"),
+            key=lambda cls: profile[cls]
+        )
+        cluster_profiles[int(c)] = profile
+
+    # ----------------------------------------------------------------
+    # 5. Save cluster profiles as JSON (used at inference time)
+    # ----------------------------------------------------------------
+    profiles_path = os.path.join(output_path, f"kmeans_k{k}_cluster_profiles.json")
+    with open(profiles_path, "w") as f:
+        json.dump(
+            {
+                "k": k,
+                "label_map": label_map,
+                "cluster_profiles": cluster_profiles,
+            },
+            f, indent=2
+        )
+    print(f"Cluster profiles saved → {profiles_path}")
+
+    # ----------------------------------------------------------------
+    # 6. Print a quick summary
+    # ----------------------------------------------------------------
+    print(f"\n{'Cluster':>8}  {'N':>6}  {'Dominant label':<25}  {'Purity %':>8}")
+    print("-" * 55)
+    for c, prof in sorted(cluster_profiles.items()):
+        dom = prof["dominant_label"]
+        purity = prof[dom]
+        print(f"{'C'+str(c):>8}  {prof['n_samples']:>6}  {dom:<25}  {purity:>7.1f}%")
+
+    # ----------------------------------------------------------------
+    # 7. Purity heatmap on test set
+    # ----------------------------------------------------------------
+    purity, cluster_names, class_names = compute_purity_matrix(
+        cluster_labels, y_test_num, label_map
+    )
+    plot_purity_heatmap(
+        purity, cluster_names, class_names,
+        title=f"Cluster Purity Heatmap  K={k}  (all classes)",
+        save_path=os.path.join(output_path, f"purity_kmeans_k{k}.png")
+    )   
+
+    """ Inference
+    import joblib, json
+    km       = joblib.load("kmeans_k10.joblib")
+    profiles = json.load(open("kmeans_k10_cluster_profiles.json"))["cluster_profiles"]
+
+    cluster_id     = km.predict(X_new_normalized)          # shape (N,)
+    predicted_label = profiles[str(cluster_id[0])]["dominant_label"]
+    label_pcts      = {k: v for k, v in profiles[str(cluster_id[0])].items()
+                    if k not in ("n_samples", "dominant_label")}
+    """
+
+    return km, cluster_profiles

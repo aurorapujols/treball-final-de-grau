@@ -1,30 +1,35 @@
 experiment_name: plot_results
 
-experiment_version: "1.0" # 1.0: MLP    1.1: LR
+experiment_version: "2.0" # 1.0: MLP    1.1: LR   2.0: create only uniformity plots for specific classes
 
 paths:
   data_root: "../../../data/upftfg26/apujols/processed/original"
   datasets_dir: "../../../data/upftfg26/apujols/datasets"
   full_dataset: "../../../data/upftfg26/apujols/datasets/dataset_51700.csv"
   test_set: "../../../data/upftfg26/apujols/datasets/dataset_test.csv"
+  test_set_labeled: "../../../data/upftfg26/apujols/datasets/dataset_test_labeled.csv"
   val_set: "../../../data/upftfg26/apujols/datasets/dataset_val.csv"
   train_set: "../../../data/upftfg26/apujols/datasets/dataset_train.csv"
   output_dir: "logs/plots"
-  fp_dest: "../../../data/upftfg26/apujols/results/val_fp"
-  fn_dest: "../../../data/upftfg26/apujols/results/val_fn"
+  fp_dest: "../../../data/upftfg26/apujols/results/test_fp"
+  fn_dest: "../../../data/upftfg26/apujols/results/test_fn"
 
 classifier_model_path: "../../../data/upftfg26/apujols/models/mlp_model_1.0.pt"
+kmeans_model_path: "../../../data/upftfg26/apujols/models/kmeans_k20.joblib"
 # classifier_model_path: "../../../data/upftfg26/apujols/models/lr_model_1.0.pt"
 ssl_model_path: "../../../data/upftfg26/apujols/models/ssl_final_model_1.0.pt"
 batch_size: 128
 use_labeled_dataset: False
+use_only_non_meteors: False
 
 plot_options:
   vgg16_tsne_plot: false
-  conf_matrix: false
+  conf_matrix: true
   class_kde: false
   roc_plot: false
-  tsne_plot: true
-  alignment_plot: true
-  uniformity_plot: true
-  knn_kde: true
+  tsne_plot: false
+  tsne_plot_cluster_assignment: false
+  alignment_plot: false
+  uniformity_plot: false
+  knn_kde: false
+  missclassifications: false

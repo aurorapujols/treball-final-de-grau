@@ -235,7 +235,7 @@ def save_comment(filename, new_comment, classifier_name):
 
 
 def load_classification_csv(suffix):
-    csv_path = f"{REVIEW_DIR}/data/classification_results_val_{suffix}.csv"
+    csv_path = f"{REVIEW_DIR}/data/classification_results_test_{suffix}.csv"
     if not os.path.exists(csv_path):
         st.error(f"Classification CSV not found: {csv_path}")
         st.stop()

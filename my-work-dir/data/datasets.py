@@ -80,7 +80,7 @@ class TwoViewDataset(Dataset):
     def __getitem__(self, idx):
         row = self.dataset.iloc[idx]
 
-        fname = self.files[idx]
+        fname = row['filename']
         # Ensure these are tensors for the GPU augmentation logic
         bmin = torch.tensor([row["bmin"]])
         bmax = torch.tensor([row["bmax"]])

@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=experiment
-#SBATCH --output=logs/plots/plots_final.out
-#SBATCH --error=logs/plots/plots_final.err
+#SBATCH --output=logs/plots/plots.out
+#SBATCH --error=logs/plots/plots.err
 #SBATCH --time=1-00:00:00
 #SBATCH --partition=gpu        # or 'cpu' depending on your cluster
 #SBATCH --gres=gpu:1           # request 1 GPU, remove if CPU only
@@ -18,18 +18,13 @@ apptainer exec \
     --bind /data:/data \
     --bind $PWD:/my-work-dir \
     docker-env.sif \
-    python -u /my-work-dir/main.py --task "clustering" --config "config/clustering.yaml"
+    python -u /my-work-dir/main.py --task "plot_results" --config "config/plotting.yaml"
 
+    # python -u /my-work-dir/main.py --task "clustering" --config "config/clustering.yaml"
     # python -u /my-work-dir/main.py --task "plot_results" --config "config/plotting.yaml"
     # python -u /my-work-dir/main.py --task "train_classifiers" --config "config/classifiers.yaml"
-    # python -u /my-work-dir/main.py --task "plot_results" --config "config/plotting.yaml"
     # python -u /my-work-dir/main.py --task "train_scan" --config "config/scan.yaml"
     # python -u /my-work-dir/main.py --task "evaluate_scan" --config "config/scan.yaml"
-    # python -u /my-work-dir/main.py --task "train_scan" --config "config/scan.yaml"
-    # python -u /my-work-dir/main.py --task "plot_results" --config "config/plotting.yaml"
-    # python -u /my-work-dir/main.py --task "train_classifiers" --config "config/classifiers.yaml"
-
-    # python -u /my-work-dir/main.py --task "train_classifiers" --config "config/classifiers.yaml"
     # python -u /my-work-dir/main.py --task "ssl_final_model" --config "config/ssl_finalmodel.yaml"
     # python -u /my-work-dir/main.py --task "ssl_hyptun" --config "config/ssl_hyptun.yaml"
     # python -u /my-work-dir/main.py --task "ssl_architecture" --config "config/ssl_architecture.yaml"

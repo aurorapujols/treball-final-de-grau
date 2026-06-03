@@ -31,6 +31,8 @@ scan:
   use_only_non_meteors: False
   evaluate_after: False
 
+use_only_non_meteors: true
+
 # k-search execution
 ssl_model_path: "../../../data/upftfg26/apujols/models/ssl_final_model_1.0.pt"
 batch_size: 128
@@ -39,6 +41,11 @@ k_search:
   k_max: 25
   n_init: 20
   use_gmm: false   # set true if you want BIC/AIC from GMM too
+
+k_means:
+  k: 20
+  n_init: 20
+  random_state: 42
 
 models: 
   scan_stage2: "../../../data/upftfg26/apujols/models/scan_model_stage2.pth"

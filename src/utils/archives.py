@@ -63,6 +63,41 @@ def move_files(file_paths, dest_folder, skipped):
         except OSError:
             pass
 
+def move_files_simple(file_paths, dest_folder, skipped):
+    dest_folder = Path(dest_folder)
+    dest_folder.mkdir(parents=True, exist_ok=True)
+
+    for file_path in file_paths:
+        src = Path(file_path)
+        if src.stem in skipped:
+            continue
+
+        if not src.exists():
+            print(f"WARNING: File not found: {src}")
+            continue
+
+        dest = dest_folder / src.name
+        shutil.move(str(src), str(dest))
+
+def prepare_test_images_nightskyucp(test_dataset_path):
+
+    test_df = pd.read_csv(test_dataset_path, sep=";")
+
+    meteor_filenames = test_df[test_df['class'] == "meteor"]
+
+    meteor_files = test_df[test_df["class"] == "meteor"]["filename"].tolist()
+    non_meteor_files = test_df[test_df["class"] != "meteor"]["filename"].tolist()
+
+    folder = "../../../data/upftfg26/apujols/processed/original"
+    meteor_paths = [f"{folder}/{filename}_CROP_SUMIMG.png" for filename in meteor_files]
+    non_meteor_paths = [f"{folder}/{filename}_CROP_SUMIMG.png" for filename in non_meteor_files]
+
+    meteor_dest_folder = "../../../data/upftfg26/apujols/state_of_the_art/nightskyUCP/my_val_images/meteor/"
+    non_meteor_dest_folder = "../../../data/upftfg26/apujols/state_of_the_art/nightskyUCP/my_val_images/non_meteor/"
+
+    move_files_simple(file_paths=meteor_paths, dest_folder=meteor_dest_folder, skipped=[])
+    move_files_simple(file_paths=non_meteor_paths, dest_folder=non_meteor_dest_folder, skipped=[])
+
 
 def get_xml_from_video(video_path, xml_paths):
     for xml_path in xml_paths:

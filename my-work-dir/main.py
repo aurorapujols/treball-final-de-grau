@@ -9,7 +9,7 @@ from experiments.run_classifier import train_classifiers
 from config.config import load_config
 from training.hyperparameter_tunning.optuna_ssl import run_ssl_optuna
 from data.datasets import get_dataset_split
-from experiments.run_kmeans_search import run_k_search
+from experiments.run_kmeans import run_k_search, run_k_means
 
 def main():
     
@@ -62,7 +62,8 @@ def main():
     elif args.task == "clustering":
         # run_scan(cfg)
         # run_clustering(cfg)
-        run_k_search(cfg)
+        # run_k_search(cfg)
+        run_k_means(cfg)
     
     elif args.task == "evaluate_scan":
         evaluate_scan_test(cfg)

@@ -103,25 +103,21 @@ def plot_tsne_3d(Z, labels):
 
 def plot_tsne_3d_labeled_set(Z, labels, colors=None):
 
-    fig = plt.figure(figsize=(8, 6))
+    fig = plt.figure(figsize=(12, 6))  # wider figure
     ax = fig.add_subplot(111, projection='3d')
 
     unique_classes = np.unique(labels)
 
-    # If no color map was provided, build one automatically
     if colors is None:
         if len(unique_classes) == 2:
-            # Binary dataset
             colors = {
-                unique_classes[0]: "#4B0082",   # non-meteor
-                unique_classes[1]: "#FFD700"    # meteor
+                unique_classes[0]: "#4B0082",
+                unique_classes[1]: "#FFD700"
             }
         else:
-            # Multi-class dataset
             cmap = plt.cm.get_cmap("tab20", len(unique_classes))
             colors = {cls: cmap(i) for i, cls in enumerate(unique_classes)}
 
-    # Scatter each class separately
     for cls in unique_classes:
         idx = labels == cls
         ax.scatter(
@@ -132,7 +128,6 @@ def plot_tsne_3d_labeled_set(Z, labels, colors=None):
             label=str(cls)
         )
 
-    # Legend
     legend_elements = [
         Line2D([0], [0], marker='o', color='w',
                label=str(cls),
@@ -140,14 +135,25 @@ def plot_tsne_3d_labeled_set(Z, labels, colors=None):
                markersize=8)
         for cls in unique_classes
     ]
-    ax.legend(handles=legend_elements, title="Classes")
+
+    # Place legend outside the axes to the right
+    fig.legend(
+        handles=legend_elements,
+        title="Classes",
+        loc="center left",
+        bbox_to_anchor=(0.82, 0.5),  # x>1 puts it outside the axes area
+        borderaxespad=0,
+        frameon=True
+    )
+
+    # Shrink the 3D axes so the legend doesn't overlap
+    ax.set_position([0.0, 0.0, 0.80, 1.0])  # [left, bottom, width, height]
 
     ax.set_title("3D t-SNE Embeddings")
     ax.set_xlabel("Dim 1")
     ax.set_ylabel("Dim 2")
     ax.set_zlabel("Dim 3")
 
-    plt.tight_layout()
     return fig
 
 
